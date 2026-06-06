@@ -207,8 +207,8 @@ export default function CalendarScreen() {
                 location={locVM.selectedMapLocation}
                 onPickLocation={locVM.setSelectedMapLocation}
                 onUseCurrentLocation={async () => {
-                  await locVM.fetchCurrentLocation();
-                  if (locVM.currentLocation) locVM.setSelectedMapLocation(locVM.currentLocation);
+                  const location = await locVM.fetchCurrentLocation();
+                  if (location) locVM.setSelectedMapLocation(location);
                 }}
                 onClearLocation={() => locVM.setSelectedMapLocation(null)}
                 isLoading={locVM.isLoadingLocation}

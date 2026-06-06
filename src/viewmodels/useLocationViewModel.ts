@@ -19,7 +19,7 @@ interface LocationViewModel {
   weatherError: string | null;
   locationLabel: string;
   selectedMapLocation: GeoLocation | null;
-  fetchCurrentLocation: () => Promise<void>;
+  fetchCurrentLocation: () => Promise<GeoLocation | null>;
   fetchWeatherForLocation: (location: GeoLocation) => Promise<void>;
   setSelectedMapLocation: (location: GeoLocation | null) => void;
   clearErrors: () => void;
@@ -34,38 +34,21 @@ export function useLocationViewModel(): LocationViewModel {
   const [weatherError, setWeatherError] = useState<string | null>(null);
   const [selectedMapLocation, setSelectedMapLocation] = useState<GeoLocation | null>(null);
 
-  const fetchCurrentLocation = useCallback(async () => {
-    setIsLoadingLocation(true);
-    setLocationError(null);
-    try {
-      const location = await getCurrentLocation();
-      if (!location) {
-        setLocationError('Location permission denied. Enable it in Settings.');
-        return;
-      }
-      setCurrentLocation(location);
-      await fetchWeatherForLocation(location);
-    } catch {
-      setLocationError('Failed to get current location.');
-    } finally {
-      setIsLoadingLocation(false);
-    }
-  }, []);
-
   const fetchWeatherForLocation = useCallback(
     async (location: GeoLocation) => {
       setIsLoadingWeather(true);
       setWeatherError(null);
       try {
-        // Try cache first (5-minute TTL)
         const cached = await getItem<WeatherData>(STORAGE_KEYS.WEATHER_CACHE);
         if (cached) {
           const age = Date.now() - new Date(cached.fetchedAt).getTime();
-          if (age < 5 * 60 * 1000) {
+          const isSameLocation = cached.location === formatLocationLabel(location);
+          if (age < 5 * 60 * 1000 && isSameLocation) {
             setWeather(cached);
             return;
           }
         }
+
         const label = formatLocationLabel(location);
         const data = await fetchWeather(location.latitude, location.longitude, label);
         setWeather(data);
@@ -78,6 +61,26 @@ export function useLocationViewModel(): LocationViewModel {
     },
     [],
   );
+
+  const fetchCurrentLocation = useCallback(async (): Promise<GeoLocation | null> => {
+    setIsLoadingLocation(true);
+    setLocationError(null);
+    try {
+      const location = await getCurrentLocation();
+      if (!location) {
+        setLocationError('Location permission denied. Enable it in Settings.');
+        return null;
+      }
+      setCurrentLocation(location);
+      await fetchWeatherForLocation(location);
+      return location;
+    } catch {
+      setLocationError('Failed to get current location.');
+      return null;
+    } finally {
+      setIsLoadingLocation(false);
+    }
+  }, [fetchWeatherForLocation]);
 
   const locationLabel = currentLocation
     ? formatLocationLabel(currentLocation)

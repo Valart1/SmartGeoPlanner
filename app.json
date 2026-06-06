@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Smart Geo-Planner",
+    "slug": "SmartGeoPlanner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0F0E1A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.smartgeoplanner.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Smart Geo-Planner needs your location to show weather and tag tasks/events to places.",
+        "NSLocationAlwaysUsageDescription": "Smart Geo-Planner needs your location for reminders near your task locations."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0F0E1A",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "package": "com.smartgeoplanner.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6C63FF",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Smart Geo-Planner uses your location to tag tasks and show local weather."
+        }
+      ]
+    ]
+  }
+}

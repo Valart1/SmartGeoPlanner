@@ -10,8 +10,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useAuth } from '../../context/AuthContext';
-import { useTaskViewModel } from '../../viewmodels/useTaskViewModel';
+import { usePlanner } from '../../context/PlannerContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
 import TaskCard from '../components/TaskCard';
 import LocationPicker from '../components/LocationPicker';
@@ -26,8 +25,7 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
 };
 
 export default function TaskListScreen() {
-  const { user } = useAuth();
-  const vm = useTaskViewModel(user?.id ?? '');
+  const { taskVM: vm } = usePlanner();
   const locVM = useLocationViewModel();
 
   const [filter, setFilter] = useState<FilterType>('all');

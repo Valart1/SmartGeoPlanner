@@ -3,31 +3,34 @@
  * Full-screen map showing task and event pins, current location, and weather.
  */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, StatusBar,
   ScrollView, ActivityIndicator,
 } from 'react-native';
 import MapView, { Marker, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
-import { useAuth } from '../../context/AuthContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
-import { useTaskViewModel } from '../../viewmodels/useTaskViewModel';
-import { useCalendarViewModel } from '../../viewmodels/useCalendarViewModel';
+import { usePlanner } from '../../context/PlannerContext';
+import { useFocusEffect } from '@react-navigation/native';
 import WeatherWidget from '../components/WeatherWidget';
-import { GeoLocation } from '../../models/Location';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
 
 export default function MapScreen() {
-  const { user } = useAuth();
   const locVM = useLocationViewModel();
-  const taskVM = useTaskViewModel(user?.id ?? '');
-  const calVM = useCalendarViewModel(user?.id ?? '');
+  const { taskVM, calendarVM } = usePlanner();
   const mapRef = useRef<MapView>(null);
   const [showWeather, setShowWeather] = useState(false);
 
   useEffect(() => {
     locVM.fetchCurrentLocation();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      taskVM.reload();
+      calendarVM.reload();
+    }, [calendarVM.reload, taskVM.reload]),
+  );
 
   // Center map on current location
   const centerOnMe = () => {
@@ -43,7 +46,7 @@ export default function MapScreen() {
 
   // Gather all geo-tagged tasks and events
   const taskPins = taskVM.tasks.filter(t => t.location);
-  const eventPins = calVM.events.filter(e => e.location);
+  const eventPins = calendarVM.allEvents.filter(e => e.location);
 
   const initialRegion = locVM.currentLocation
     ? {

@@ -12,7 +12,7 @@ import {
   cancelNotification,
 } from '../services/notificationService';
 
-interface TaskViewModel {
+export interface TaskViewModel {
   tasks: Task[];
   isLoading: boolean;
   error: string | null;

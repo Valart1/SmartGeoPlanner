@@ -12,6 +12,7 @@ import TaskListScreen from '../views/tasks/TaskListScreen';
 import CalendarScreen from '../views/calendar/CalendarScreen';
 import MapScreen from '../views/map/MapScreen';
 import { Colors, BorderRadius } from '../theme/theme';
+import { PlannerProvider } from '../context/PlannerContext';
 
 export type MainTabParamList = {
   Dashboard: undefined;
@@ -67,6 +68,7 @@ const tabStyles = StyleSheet.create({
 
 export default function MainTabNavigator() {
   return (
+    <PlannerProvider>
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
@@ -118,5 +120,6 @@ export default function MainTabNavigator() {
         }}
       />
     </Tab.Navigator>
+    </PlannerProvider>
   );
 }

@@ -62,14 +62,14 @@ export default function LoginScreen({ navigation }: Props) {
             </View>
           )}
 
-          {/* Email */}
+          {/* Email or username */}
           <View style={styles.field}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>Email or Username</Text>
             <TextInput
               style={styles.input}
               value={email}
               onChangeText={setEmail}
-              placeholder="you@example.com"
+              placeholder="you@example.com or johndoe"
               placeholderTextColor={Colors.textMuted}
               autoCapitalize="none"
               keyboardType="email-address"

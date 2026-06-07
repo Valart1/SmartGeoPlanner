@@ -13,6 +13,13 @@ export interface User {
   createdAt: string; // ISO 8601
 }
 
+export interface StoredUserAccount {
+  user: User;
+  emailKey: string;
+  usernameKey: string;
+  passwordHash: string;
+}
+
 export interface AuthCredentials {
   email: string;
   password: string;

@@ -7,21 +7,20 @@
 import React, { useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  RefreshControl, StatusBar,
+  RefreshControl, StatusBar, Alert,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { useTaskViewModel } from '../../viewmodels/useTaskViewModel';
-import { useCalendarViewModel } from '../../viewmodels/useCalendarViewModel';
+import { usePlanner } from '../../context/PlannerContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
 import WeatherWidget from '../components/WeatherWidget';
 import TaskCard from '../components/TaskCard';
 import EventCard from '../components/EventCard';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
+import { scheduleTestNotification } from '../../services/notificationService';
 
 export default function DashboardScreen() {
   const { user, logout } = useAuth();
-  const taskVM = useTaskViewModel(user?.id ?? '');
-  const calendarVM = useCalendarViewModel(user?.id ?? '');
+  const { taskVM, calendarVM } = usePlanner();
   const locationVM = useLocationViewModel();
 
   useEffect(() => {
@@ -49,6 +48,16 @@ export default function DashboardScreen() {
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
     return 'Good evening';
+  };
+
+  const handleTestNotification = async () => {
+    const notificationId = await scheduleTestNotification();
+    Alert.alert(
+      notificationId ? 'Notification scheduled' : 'Notifications unavailable',
+      notificationId
+        ? 'A local test notification should appear in about 10 seconds.'
+        : 'Allow notifications for Expo Go in your phone settings, then try again.',
+    );
   };
 
   return (
@@ -87,6 +96,9 @@ export default function DashboardScreen() {
           error={locationVM.weatherError}
           locationLabel={locationVM.locationLabel}
         />
+        <TouchableOpacity style={styles.testNotificationBtn} onPress={handleTestNotification}>
+          <Text style={styles.testNotificationText}>Test Notification</Text>
+        </TouchableOpacity>
 
         {/* Today's events */}
         <SectionHeader title={`Today's Events (${todayEvents.length})`} />
@@ -188,4 +200,18 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: Spacing.base, paddingBottom: Spacing.xl },
   statsRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  testNotificationBtn: {
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    padding: Spacing.md,
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+  },
+  testNotificationText: {
+    color: Colors.primary,
+    fontSize: Typography.fontSize.base,
+    fontWeight: '700',
+  },
 });

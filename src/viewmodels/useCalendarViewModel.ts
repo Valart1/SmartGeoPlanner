@@ -12,8 +12,9 @@ import {
   cancelNotification,
 } from '../services/notificationService';
 
-interface CalendarViewModel {
+export interface CalendarViewModel {
   events: CalendarEvent[];
+  allEvents: CalendarEvent[];
   isLoading: boolean;
   error: string | null;
   selectedDate: string;
@@ -38,6 +39,7 @@ function todayString(): string {
 
 export function useCalendarViewModel(userId: string): CalendarViewModel {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(todayString());
@@ -46,7 +48,9 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
     try {
       setIsLoading(true);
       const stored = await getItem<CalendarEvent[]>(STORAGE_KEYS.EVENTS);
-      setEvents((stored ?? []).filter(e => e.userId === userId));
+      const loadedEvents = stored ?? [];
+      setAllEvents(loadedEvents);
+      setEvents(loadedEvents.filter(e => e.userId === userId));
     } catch {
       setError('Failed to load events.');
     } finally {
@@ -61,7 +65,9 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
   const persist = async (updated: CalendarEvent[]) => {
     const all = await getItem<CalendarEvent[]>(STORAGE_KEYS.EVENTS) ?? [];
     const others = all.filter(e => e.userId !== userId);
-    await setItem(STORAGE_KEYS.EVENTS, [...others, ...updated]);
+    const nextAllEvents = [...others, ...updated];
+    await setItem(STORAGE_KEYS.EVENTS, nextAllEvents);
+    setAllEvents(nextAllEvents);
     setEvents(updated);
   };
 
@@ -163,6 +169,7 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
 
   return {
     events,
+    allEvents,
     isLoading,
     error,
     selectedDate,

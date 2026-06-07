@@ -16,11 +16,12 @@ import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
 type Props = { navigation: NativeStackNavigationProp<AuthStackParamList, 'ForgotPassword'> };
 
 export default function ForgotPasswordScreen({ navigation }: Props) {
-  const { forgotPassword, isLoading } = useAuthViewModel();
+  const { forgotPassword, isLoading, error, clearError } = useAuthViewModel();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
 
   const handleSubmit = async () => {
+    clearError();
     const ok = await forgotPassword(email.trim());
     if (ok) setSent(true);
   };
@@ -44,6 +45,12 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
         <Text style={styles.subtitle}>
           Enter your email and we'll send you a link to reset your password.
         </Text>
+
+        {error && !sent ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
 
         {sent ? (
           <View style={styles.successBanner}>
@@ -110,6 +117,15 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.6 },
   primaryBtnText: { color: Colors.textOnPrimary, fontSize: Typography.fontSize.md, fontWeight: '700' },
+  errorBanner: {
+    backgroundColor: `${Colors.error}22`,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    borderRadius: BorderRadius.sm,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  errorText: { color: Colors.error, fontSize: Typography.fontSize.sm, textAlign: 'center' },
   successBanner: {
     backgroundColor: `${Colors.success}22`, borderWidth: 1, borderColor: Colors.success,
     borderRadius: BorderRadius.md, padding: Spacing.base, gap: Spacing.md,

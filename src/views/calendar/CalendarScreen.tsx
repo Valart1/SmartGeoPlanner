@@ -11,8 +11,7 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useAuth } from '../../context/AuthContext';
-import { useCalendarViewModel } from '../../viewmodels/useCalendarViewModel';
+import { usePlanner } from '../../context/PlannerContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
 import EventCard from '../components/EventCard';
 import LocationPicker from '../components/LocationPicker';
@@ -22,8 +21,7 @@ import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
 const EVENT_COLORS: EventColor[] = ['#6C63FF', '#FF6584', '#43C6AC', '#F7971E', '#56CCF2'];
 
 export default function CalendarScreen() {
-  const { user } = useAuth();
-  const vm = useCalendarViewModel(user?.id ?? '');
+  const { calendarVM: vm } = usePlanner();
   const locVM = useLocationViewModel();
 
   const [modalVisible, setModalVisible] = useState(false);

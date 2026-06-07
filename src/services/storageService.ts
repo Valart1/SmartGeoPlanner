@@ -31,6 +31,7 @@ export async function clearAll(): Promise<void> {
 // Storage keys
 export const STORAGE_KEYS = {
   USER: '@sgp:user',
+  USERS: '@sgp:users',
   TASKS: '@sgp:tasks',
   EVENTS: '@sgp:events',
   WEATHER_CACHE: '@sgp:weather',

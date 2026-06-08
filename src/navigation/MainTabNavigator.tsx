@@ -25,15 +25,13 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 interface TabIconProps {
   icon: string;
-  label: string;
   focused: boolean;
 }
 
-function TabIcon({ icon, label, focused }: TabIconProps) {
+function TabIcon({ icon, focused }: TabIconProps) {
   return (
     <View style={[tabStyles.iconWrap, focused && tabStyles.iconWrapFocused]}>
       <Text style={[tabStyles.icon, focused && tabStyles.iconFocused]}>{icon}</Text>
-      <Text style={[tabStyles.label, focused && tabStyles.labelFocused]}>{label}</Text>
     </View>
   );
 }
@@ -41,28 +39,24 @@ function TabIcon({ icon, label, focused }: TabIconProps) {
 const tabStyles = StyleSheet.create({
   iconWrap: {
     alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 12,
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    minWidth: 90,
+    minHeight: 60,
     borderRadius: BorderRadius.md,
-    gap: 2,
+    overflow: 'visible',
   },
   iconWrapFocused: {
     backgroundColor: `${Colors.primary}22`,
   },
   icon: {
-    fontSize: 22,
+    fontSize: 32,
+    lineHeight: 40,
+    textAlign: 'center',
   },
   iconFocused: {
-    transform: [{ scale: 1.1 }],
-  },
-  label: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    fontWeight: '500',
-  },
-  labelFocused: {
-    color: Colors.primary,
-    fontWeight: '700',
+    transform: [{ scale: 1.05 }],
   },
 });
 
@@ -77,9 +71,9 @@ export default function MainTabNavigator() {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.border,
           borderTopWidth: 1,
-          height: 70,
-          paddingBottom: 8,
-          paddingTop: 8,
+          height: 86,
+          paddingBottom: 10,
+          paddingTop: 10,
         },
       }}
     >
@@ -88,7 +82,7 @@ export default function MainTabNavigator() {
         component={DashboardScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="🏠" label="Home" focused={focused} />
+            <TabIcon icon="🏠" focused={focused} />
           ),
         }}
       />
@@ -97,7 +91,7 @@ export default function MainTabNavigator() {
         component={TaskListScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="✅" label="Tasks" focused={focused} />
+            <TabIcon icon="✅" focused={focused} />
           ),
         }}
       />
@@ -106,7 +100,7 @@ export default function MainTabNavigator() {
         component={CalendarScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="📅" label="Calendar" focused={focused} />
+            <TabIcon icon="📅" focused={focused} />
           ),
         }}
       />
@@ -115,7 +109,7 @@ export default function MainTabNavigator() {
         component={MapScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="🗺️" label="Map" focused={focused} />
+            <TabIcon icon="🗺️" focused={focused} />
           ),
         }}
       />

@@ -18,8 +18,8 @@ Smart Geo-Planner is a cross-platform React Native app built with Expo and TypeS
 
 Install these before running the project:
 
-- Node.js LTS
-- npm
+- Node.js LTS v24.16.0
+- npm  11.13.0
 - Git
 - Expo Go on your phone
 - Android Studio if you want to run an Android emulator
@@ -29,7 +29,7 @@ Important: this project is configured for Expo SDK 54. Your phone's Expo Go app 
 ## Clone And Install
 
 ```powershell
-git clone <your-repository-url>
+git clone https://github.com/Valart1/SmartGeoPlanner.git
 cd SmartGeoPlanner
 npm install
 ```
@@ -169,3 +169,8 @@ Before submitting or sharing the project, run:
 npx.cmd tsc --noEmit
 npm.cmd test
 ```
+
+
+
+
+

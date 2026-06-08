@@ -34,5 +34,6 @@ export const STORAGE_KEYS = {
   USERS: '@sgp:users',
   TASKS: '@sgp:tasks',
   EVENTS: '@sgp:events',
+  SEEN_EVENT_NOTIFICATIONS: '@sgp:seenEventNotifications',
   WEATHER_CACHE: '@sgp:weather',
 } as const;

@@ -129,3 +129,15 @@ export async function scheduleTestNotification(): Promise<string | null> {
     new Date(Date.now() + MINIMUM_DELAY_MS),
   );
 }
+
+export async function scheduleNewEventNotification(
+  eventTitle: string,
+  eventDate: string,
+  eventTime: string,
+): Promise<string | null> {
+  return scheduleNotification(
+    'New Event Added',
+    `${eventTitle} is scheduled for ${eventDate}${eventTime ? ` at ${eventTime}` : ''}.`,
+    new Date(Date.now() + MINIMUM_DELAY_MS),
+  );
+}

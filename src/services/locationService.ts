@@ -47,14 +47,15 @@ export async function getCurrentLocation(): Promise<GeoLocation | null> {
 export async function reverseGeocode(
   latitude: number,
   longitude: number,
-): Promise<{ address?: string; city?: string; country?: string }> {
+): Promise<{ address?: string; city?: string; region?: string; country?: string }> {
   try {
     const results = await ExpoLocation.reverseGeocodeAsync({ latitude, longitude });
     if (results.length === 0) return {};
     const r = results[0];
     return {
       address: [r.street, r.streetNumber].filter(Boolean).join(' ') || undefined,
-      city: r.city || r.district || r.subregion || undefined,
+      city: r.city || r.district || undefined,
+      region: r.region || r.subregion || undefined,
       country: r.country || undefined,
     };
   } catch {
@@ -70,6 +71,11 @@ export function formatLocationLabel(location: GeoLocation): string {
     return `${location.city}, ${location.country}`;
   }
   if (location.city) return location.city;
+  if (location.region && location.country) {
+    return `${location.region}, ${location.country}`;
+  }
+  if (location.region) return location.region;
   if (location.address) return location.address;
-  return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+  if (location.country) return location.country;
+  return 'Current location';
 }

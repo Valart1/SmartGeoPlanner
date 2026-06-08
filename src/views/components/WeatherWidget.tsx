@@ -48,7 +48,9 @@ export default function WeatherWidget({
 
   return (
     <View style={styles.container}>
-      {/* Main info */}
+      <Text style={styles.locationTitle}>Current weather at</Text>
+      <Text style={styles.locationBadge}>📍 {locationLabel}</Text>
+
       <View style={styles.mainRow}>
         <Text style={styles.icon}>{weather.icon}</Text>
         <View>
@@ -57,10 +59,6 @@ export default function WeatherWidget({
         </View>
       </View>
 
-      {/* Location */}
-      <Text style={styles.location}>📍 {locationLabel}</Text>
-
-      {/* Detail chips */}
       <View style={styles.details}>
         <DetailChip label="Feels like" value={`${weather.feelsLike}°C`} />
         <DetailChip label="Wind" value={`${weather.windspeed} km/h`} />
@@ -107,9 +105,17 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textTransform: 'capitalize',
   },
-  location: {
+  locationTitle: {
+    fontSize: Typography.fontSize.xs,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  locationBadge: {
     fontSize: Typography.fontSize.sm,
-    color: Colors.textMuted,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.sm,
   },
   details: {
     flexDirection: 'row',

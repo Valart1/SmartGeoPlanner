@@ -8,6 +8,7 @@ export interface GeoLocation {
   longitude: number;
   address?: string;
   city?: string;
+  region?: string;
   country?: string;
   placeId?: string;
 }

@@ -2,8 +2,6 @@ import React, {
   createContext,
   ReactNode,
   useContext,
-  useEffect,
-  useRef,
 } from 'react';
 import { useAuth } from './AuthContext';
 import {
@@ -14,8 +12,6 @@ import {
   CalendarViewModel,
   useCalendarViewModel,
 } from '../viewmodels/useCalendarViewModel';
-import { getItem, setItem, STORAGE_KEYS } from '../services/storageService';
-import { scheduleNewEventNotification } from '../services/notificationService';
 
 interface PlannerContextValue {
   taskVM: TaskViewModel;
@@ -29,46 +25,10 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const userId = user?.id ?? '';
   const taskVM = useTaskViewModel(userId);
   const calendarVM = useCalendarViewModel(userId);
-  const hasCheckedNewEvents = useRef(false);
 
-  useEffect(() => {
-    if (!userId || calendarVM.isLoading || hasCheckedNewEvents.current) return;
-
-    hasCheckedNewEvents.current = true;
-
-    const notifyAboutUnseenEvents = async () => {
-      const seenByUser = await getItem<Record<string, string[]>>(
-        STORAGE_KEYS.SEEN_EVENT_NOTIFICATIONS,
-      );
-      const seenEventIds = new Set(seenByUser?.[userId] ?? []);
-      const otherUserEvents = calendarVM.allEvents.filter(event => event.userId !== userId);
-      const unseenEvents = otherUserEvents.filter(event => !seenEventIds.has(event.id));
-
-      if (unseenEvents.length === 0) return;
-
-      const newestEvent = unseenEvents
-        .slice()
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-
-      await scheduleNewEventNotification(
-        newestEvent.title,
-        newestEvent.date,
-        newestEvent.isAllDay ? '' : newestEvent.startTime,
-      );
-
-      const nextSeenByUser = {
-        ...(seenByUser ?? {}),
-        [userId]: [
-          ...seenEventIds,
-          ...unseenEvents.map(event => event.id),
-        ],
-      };
-
-      await setItem(STORAGE_KEYS.SEEN_EVENT_NOTIFICATIONS, nextSeenByUser);
-    };
-
-    notifyAboutUnseenEvents();
-  }, [calendarVM.allEvents, calendarVM.isLoading, userId]);
+  // NOTE: The previous cross-user "notify about unseen events from other users"
+  // effect was a local-storage artifact — the backend scopes events to the
+  // authenticated user, so there are no other-user events to announce. Removed.
 
   return (
     <PlannerContext.Provider value={{ taskVM, calendarVM }}>

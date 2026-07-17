@@ -7,22 +7,25 @@ import { Task, CreateTaskPayload, UpdateTaskPayload } from '../models/Task';
 import { CalendarEvent, CreateEventPayload, UpdateEventPayload } from '../models/Event';
 import { User } from '../models/User';
 
-const API_BASE_URL = 'http://localhost:3000/api';
+// Host LAN IP so both Expo Web and physical devices on the same network can
+// reach the backend. If the host IP changes, update this single constant.
+// (Android emulator would use http://10.0.2.2:3000/api instead.)
+const API_BASE_URL = 'http://192.168.1.64:3000/api';
 
 // Get stored token
-async function getToken(): Promise<string | null> {
+export async function getToken(): Promise<string | null> {
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
   return AsyncStorage.getItem('auth_token');
 }
 
 // Store token
-async function setToken(token: string): Promise<void> {
+export async function setToken(token: string): Promise<void> {
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
   return AsyncStorage.setItem('auth_token', token);
 }
 
 // Remove token
-async function removeToken(): Promise<void> {
+export async function removeToken(): Promise<void> {
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
   return AsyncStorage.removeItem('auth_token');
 }

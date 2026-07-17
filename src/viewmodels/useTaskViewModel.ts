@@ -1,12 +1,20 @@
 /**
  * useTaskViewModel
  * MVVM ViewModel for Task/To-Do management.
- * Handles CRUD operations, filtering, local persistence, and notification scheduling.
+ * Handles CRUD operations, filtering, and notification scheduling.
+ * Data is persisted via the PostgreSQL backend (apiService); the backend scopes
+ * tasks to the authenticated user via the JWT, so userId is used only for
+ * notification ownership, not for client-side filtering.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { Task, CreateTaskPayload, UpdateTaskPayload } from '../models/Task';
-import { getItem, setItem, STORAGE_KEYS } from '../services/storageService';
+import {
+  getTasks as apiGetTasks,
+  createTask as apiCreateTask,
+  updateTask as apiUpdateTask,
+  deleteTask as apiDeleteTask,
+} from '../services/apiService';
 import {
   scheduleTaskReminder,
   cancelNotification,
@@ -26,13 +34,6 @@ export interface TaskViewModel {
   getTaskById: (id: string) => Task | undefined;
   clearError: () => void;
   reload: () => Promise<void>;
-}
-
-/**
- * Generates a unique ID using timestamp + random suffix.
- */
-function generateId(): string {
-  return `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function todayString(): string {
@@ -59,71 +60,29 @@ function isOverdue(task: Task): boolean {
   return due < new Date();
 }
 
-/**
- * Checks if a task has expired (passed its due time by more than 1 week).
- * Expired tasks are automatically removed.
- */
-function isTaskExpired(task: Task): boolean {
-  if (task.isCompleted) return false;
-  if (!task.dueDate) return false;
-
-  const now = new Date();
-  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  if (task.dueTime) {
-    // For timed tasks, check if the due time is more than 1 week ago
-    const [year, month, day] = task.dueDate.split('-').map(Number);
-    const [hours, minutes] = task.dueTime.split(':').map(Number);
-    const dueTime = new Date(year, month - 1, day, hours, minutes);
-    return dueTime < oneWeekAgo;
-  }
-
-  // For date-only tasks, check if the date is more than 1 week ago
-  const dueDate = new Date(task.dueDate);
-  dueDate.setHours(23, 59, 59);
-  return dueDate < oneWeekAgo;
-}
-
-export function useTaskViewModel(userId: string): TaskViewModel {
+export function useTaskViewModel(_userId: string): TaskViewModel {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Load persisted tasks on mount ──────────────────────────────────────────
+  // ── Load tasks from the backend on mount ─────────────────────────────────────
   const reload = useCallback(async () => {
     try {
       setIsLoading(true);
-      const stored = await getItem<Task[]>(STORAGE_KEYS.TASKS);
-      const loadedTasks = stored ?? [];
-
-      // Clean up expired tasks (older than 1 week)
-      const activeTasks = loadedTasks.filter(t => !isTaskExpired(t));
-      if (activeTasks.length !== loadedTasks.length) {
-        // Cancel notifications for expired tasks
-        for (const expired of loadedTasks.filter(t => isTaskExpired(t))) {
-          if (expired.notificationId) {
-            await cancelNotification(expired.notificationId);
-          }
-        }
-        await setItem(STORAGE_KEYS.TASKS, activeTasks);
-      }
-
-      const userTasks = activeTasks.filter(t => t.userId === userId);
-      setTasks(userTasks);
+      const loadedTasks = await apiGetTasks();
+      setTasks(loadedTasks);
     } catch (e) {
       setError('Failed to load tasks.');
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
-  // ── CRUD ───────────────────────────────────────────────────────────────────
-  // All write paths read from storage before writing so a burst of updates
-  // issued before React re-renders can't drop writes by reading a stale list.
+  // ── CRUD ────────────────────────────────────────────────────────────────────
 
   const createTask = useCallback(
     async (payload: CreateTaskPayload): Promise<Task> => {
@@ -137,7 +96,6 @@ export function useTaskViewModel(userId: string): TaskViewModel {
         throw new Error('Cannot create tasks with a time that has already passed today.');
       }
 
-      const now = new Date().toISOString();
       let notificationId: string | null = null;
 
       if (payload.dueDate && payload.dueTime) {
@@ -148,35 +106,20 @@ export function useTaskViewModel(userId: string): TaskViewModel {
         );
       }
 
-      const task: Task = {
+      const created = await apiCreateTask({
         ...payload,
-        id: generateId(),
-        userId,
         notificationId,
-        createdAt: now,
-        updatedAt: now,
-      };
+      });
 
-      // Read storage to derive the merged list atomically — guards against
-      // a concurrent write from another user between the previous and this call.
-      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
-      const others = all.filter(t => t.userId !== userId);
-      const next = [...others, ...all.filter(t => t.userId === userId), task];
-      await setItem(STORAGE_KEYS.TASKS, next);
-      setTasks(next.filter(t => t.userId === userId));
-      return task;
+      setTasks(prev => [created, ...prev]);
+      return created;
     },
-    [userId],
+    [],
   );
 
   const updateTask = useCallback(
     async (id: string, payload: UpdateTaskPayload): Promise<void> => {
-      // Read the current user-scoped list from storage to avoid a stale closure.
-      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
-      const userTasks = all.filter(t => t.userId === userId);
-
-      // Find the task to get its current due date/time for validation
-      const task = userTasks.find(t => t.id === id);
+      const task = tasks.find(t => t.id === id);
       if (!task) return;
 
       // Check if the new due date (if provided) is in the past
@@ -191,83 +134,76 @@ export function useTaskViewModel(userId: string): TaskViewModel {
         throw new Error('Cannot update task to a time that has already passed today.');
       }
 
-      const updated = await Promise.all(
-        userTasks.map(async t => {
-          if (t.id !== id) return t;
+      const newDueDate = payload.dueDate !== undefined ? payload.dueDate : task.dueDate;
+      const newDueTime = payload.dueTime !== undefined ? payload.dueTime : task.dueTime;
+      const dueChanged = payload.dueDate !== undefined || payload.dueTime !== undefined;
 
-          const newDueDate = payload.dueDate !== undefined ? payload.dueDate : t.dueDate;
-          const newDueTime = payload.dueTime !== undefined ? payload.dueTime : t.dueTime;
-          const dueChanged =
-            payload.dueDate !== undefined || payload.dueTime !== undefined;
+      // Reschedule notification whenever the due pair changes.
+      if (dueChanged && task.notificationId) {
+        await cancelNotification(task.notificationId);
+      }
 
-          // Reschedule notification whenever the due pair changes.
-          if (dueChanged && t.notificationId) {
-            await cancelNotification(t.notificationId);
-          }
+      let notificationId = task.notificationId;
+      if (newDueDate && newDueTime) {
+        notificationId = await scheduleTaskReminder(
+          payload.title ?? task.title,
+          newDueDate,
+          newDueTime,
+        );
+      } else if (dueChanged) {
+        // The task lost its due date/time — clear the reminder.
+        notificationId = null;
+      }
 
-          let notificationId = t.notificationId;
-          if (newDueDate && newDueTime) {
-            notificationId = await scheduleTaskReminder(
-              payload.title ?? t.title,
-              newDueDate,
-              newDueTime,
-            );
-          } else if (dueChanged) {
-            // The task lost its due date/time — clear the reminder.
-            notificationId = null;
-          }
+      await apiUpdateTask(id, { ...payload, notificationId });
 
-          return {
-            ...t,
-            ...payload,
-            notificationId,
-            updatedAt: new Date().toISOString(),
-          };
-        }),
+      setTasks(prev =>
+        prev.map(t =>
+          t.id === id
+            ? { ...t, ...payload, notificationId, updatedAt: new Date().toISOString() }
+            : t,
+        ),
       );
-
-      const others = all.filter(t => t.userId !== userId);
-      await setItem(STORAGE_KEYS.TASKS, [...others, ...updated]);
-      setTasks(updated);
     },
-    [userId],
+    [tasks],
   );
 
   const deleteTask = useCallback(
     async (id: string) => {
-      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
-      const userTasks = all.filter(t => t.userId === userId);
-      const target = userTasks.find(t => t.id === id);
+      const target = tasks.find(t => t.id === id);
       if (target?.notificationId) {
         await cancelNotification(target.notificationId);
       }
-      const remaining = userTasks.filter(t => t.id !== id);
-      const others = all.filter(t => t.userId !== userId);
-      await setItem(STORAGE_KEYS.TASKS, [...others, ...remaining]);
-      setTasks(remaining);
+      await apiDeleteTask(id);
+      setTasks(prev => prev.filter(t => t.id !== id));
     },
-    [userId],
+    [tasks],
   );
 
   const toggleComplete = useCallback(
     async (id: string) => {
-      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
-      const userTasks = all.filter(t => t.userId === userId);
-      const updated = userTasks.map(t =>
-        t.id === id
-          ? {
-              ...t,
-              isCompleted: !t.isCompleted,
-              status: (!t.isCompleted ? 'completed' : 'pending') as Task['status'],
-              updatedAt: new Date().toISOString(),
-            }
-          : t,
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const isCompleted = !task.isCompleted;
+      const status = isCompleted ? 'completed' : 'pending';
+
+      await apiUpdateTask(id, { isCompleted, status });
+
+      setTasks(prev =>
+        prev.map(t =>
+          t.id === id
+            ? {
+                ...t,
+                isCompleted,
+                status: status as Task['status'],
+                updatedAt: new Date().toISOString(),
+              }
+            : t,
+        ),
       );
-      const others = all.filter(t => t.userId !== userId);
-      await setItem(STORAGE_KEYS.TASKS, [...others, ...updated]);
-      setTasks(updated);
     },
-    [userId],
+    [tasks],
   );
 
   const getTaskById = (id: string) => tasks.find(t => t.id === id);

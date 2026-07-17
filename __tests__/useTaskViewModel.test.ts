@@ -2,30 +2,54 @@
  * useTaskViewModel Unit Tests
  *
  * Tests business logic in isolation using Jest + @testing-library/react-native.
- * All external dependencies (AsyncStorage, notifications) are mocked.
+ * All external dependencies (apiService, notifications) are mocked. The viewmodel
+ * now persists via the PostgreSQL backend (apiService), so we mock apiService
+ * with an in-memory store instead of AsyncStorage.
  */
 
 import { renderHook, act } from '@testing-library/react-native';
 import { useTaskViewModel } from '../src/viewmodels/useTaskViewModel';
-import { CreateTaskPayload } from '../src/models/Task';
+import { Task, CreateTaskPayload } from '../src/models/Task';
 
-// ─── Mocks ────────────────────────────────────────────────────────────────────
+// ─── In-memory API mock ─────────────────────────────────────────────────────
 
-// Mock AsyncStorage with an in-memory store per test
-const mockStore: Record<string, string> = {};
+const USER_ID = 'test-user-001';
 
-jest.mock('@react-native-async-storage/async-storage', () => ({
-  getItem: jest.fn(async (key: string) => mockStore[key] ?? null),
-  setItem: jest.fn(async (key: string, value: string) => {
-    mockStore[key] = value;
+let taskStore: Map<string, Task>;
+let nextId = 0;
+
+function makeId(): string {
+  nextId += 1;
+  return `task-${nextId}`;
+}
+
+const apiMock = {
+  getTasks: jest.fn(async (): Promise<Task[]> => Array.from(taskStore.values())),
+  createTask: jest.fn(async (payload: CreateTaskPayload): Promise<Task> => {
+    const now = new Date().toISOString();
+    const task: Task = {
+      ...payload,
+      id: makeId(),
+      userId: USER_ID,
+      notificationId: payload.notificationId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    taskStore.set(task.id, task);
+    return task;
   }),
-  removeItem: jest.fn(async (key: string) => {
-    delete mockStore[key];
+  updateTask: jest.fn(async (id: string, updates: Partial<Task>): Promise<void> => {
+    const existing = taskStore.get(id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    taskStore.set(id, updated);
   }),
-  clear: jest.fn(async () => {
-    Object.keys(mockStore).forEach(k => delete mockStore[k]);
+  deleteTask: jest.fn(async (id: string): Promise<void> => {
+    taskStore.delete(id);
   }),
-}));
+};
+
+jest.mock('../src/services/apiService', () => apiMock);
 
 // Mock notification service so no real OS calls are made during tests
 jest.mock('../src/services/notificationService', () => ({
@@ -34,8 +58,6 @@ jest.mock('../src/services/notificationService', () => ({
 }));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const USER_ID = 'test-user-001';
 
 /** Base payload reused across tests */
 const basePayload: CreateTaskPayload = {
@@ -57,9 +79,10 @@ const overduePayload: CreateTaskPayload = {
   dueTime: '09:00',
 };
 
-// Clear the in-memory store before each test to prevent cross-test pollution
+// Reset the in-memory store + mock call history before each test
 beforeEach(() => {
-  Object.keys(mockStore).forEach(k => delete mockStore[k]);
+  taskStore = new Map();
+  nextId = 0;
   jest.clearAllMocks();
 });
 
@@ -71,7 +94,6 @@ describe('useTaskViewModel', () => {
   it('initialises with an empty task list and isLoading=false', async () => {
     const { result } = renderHook(() => useTaskViewModel(USER_ID));
 
-    // Wait for the async load to finish
     await act(async () => {});
 
     expect(result.current.tasks).toHaveLength(0);
@@ -81,7 +103,7 @@ describe('useTaskViewModel', () => {
 
   // ── Create ──────────────────────────────────────────────────────────────────
 
-  it('createTask adds a task with correct shape and userId', async () => {
+  it('createTask adds a task with correct shape', async () => {
     const { result } = renderHook(() => useTaskViewModel(USER_ID));
     await act(async () => {});
 
@@ -93,7 +115,7 @@ describe('useTaskViewModel', () => {
     const task = result.current.tasks[0];
     expect(task.title).toBe('Buy groceries');
     expect(task.userId).toBe(USER_ID);
-    expect(task.id).toMatch(/^task_/);
+    expect(task.id).toMatch(/^task-/);
     expect(task.isCompleted).toBe(false);
     expect(task.status).toBe('pending');
     expect(task.createdAt).toBeTruthy();
@@ -104,7 +126,6 @@ describe('useTaskViewModel', () => {
     const { result } = renderHook(() => useTaskViewModel(USER_ID));
     await act(async () => {});
 
-    // Each createTask must be in its own act() to avoid stale-closure state
     await act(async () => { await result.current.createTask(basePayload); });
     await act(async () => { await result.current.createTask({ ...basePayload, title: 'Task 2' }); });
     await act(async () => { await result.current.createTask({ ...basePayload, title: 'Task 3' }); });
@@ -185,7 +206,6 @@ describe('useTaskViewModel', () => {
     const { result } = renderHook(() => useTaskViewModel(USER_ID));
     await act(async () => {});
 
-    // Each createTask in its own act() so the hook sees updated state
     await act(async () => { await result.current.createTask(basePayload); });    // no due date → pending
     await act(async () => { await result.current.createTask(overduePayload); }); // past due → overdue
 
@@ -233,10 +253,7 @@ describe('useTaskViewModel', () => {
     expect(missing).toBeUndefined();
   });
 
-  // ── Regression: stale-closure in CRUD ─────────────────────────────────────
-  // Two updates issued back-to-back in the same act() must both be visible
-  // in the final task. Pre-fix, the second update saw a stale `tasks` list
-  // and could drop the first update.
+  // ── Regression: back-to-back updates ────────────────────────────────────────
 
   it('applies back-to-back updates without losing intermediate state', async () => {
     const { result } = renderHook(() => useTaskViewModel(USER_ID));

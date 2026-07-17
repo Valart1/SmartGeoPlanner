@@ -78,7 +78,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 // Update event
 router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const updates = req.body;
+  const body = req.body ?? {};
 
   try {
     // Verify event belongs to user
@@ -91,16 +91,52 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Build update query
-    const setClause = Object.keys(updates)
-      .map((key, i) => `${key} = $${i + 2}`)
-      .join(', ');
+    // Map allowed camelCase fields → snake_case columns (injection-safe, matches
+    // the camelCase model the frontend sends).
+    const fieldMap: Record<string, string> = {
+      title: 'title',
+      description: 'description',
+      date: 'date',
+      startTime: 'start_time',
+      endTime: 'end_time',
+      color: 'color',
+      location: 'location',
+      notificationId: 'notification_id',
+      isAllDay: 'is_all_day',
+    };
 
-    const values = [id, ...Object.values(updates)];
+    const updates = Object.keys(body)
+      .filter(key => key in fieldMap)
+      .map(key => ({ column: fieldMap[key], value: body[key] }));
+
+    if (updates.length === 0) {
+      const current = await pool.query('SELECT * FROM events WHERE id = $1', [id]);
+      const event = current.rows[0];
+      return res.json({
+        event: {
+          id: event.id,
+          userId: event.user_id,
+          title: event.title,
+          description: event.description,
+          date: event.date,
+          startTime: event.start_time,
+          endTime: event.end_time,
+          color: event.color,
+          location: event.location,
+          notificationId: event.notification_id,
+          isAllDay: event.is_all_day,
+          createdAt: event.created_at,
+          updatedAt: event.updated_at,
+        }
+      });
+    }
+
+    const setClause = updates.map((u, i) => `${u.column} = $${i + 1}`).join(', ');
+    const values = updates.map(u => u.value);
 
     const result = await pool.query(
-      `UPDATE events SET ${setClause} WHERE id = $1 RETURNING *`,
-      values
+      `UPDATE events SET ${setClause} WHERE id = $${updates.length + 1} RETURNING *`,
+      [...values, id]
     );
 
     const event = result.rows[0];

@@ -78,7 +78,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 // Update task
 router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const updates = req.body;
+  const body = req.body ?? {};
 
   try {
     // Verify task belongs to user
@@ -91,16 +91,54 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // Build update query
-    const setClause = Object.keys(updates)
-      .map((key, i) => `${key} = $${i + 2}`)
-      .join(', ');
+    // Map allowed camelCase fields → snake_case columns. This avoids building
+    // SQL from arbitrary request keys (injection-safe) and matches the model
+    // the frontend sends (Task is camelCase; the router maps to the table).
+    const fieldMap: Record<string, string> = {
+      title: 'title',
+      description: 'description',
+      priority: 'priority',
+      status: 'status',
+      isCompleted: 'is_completed',
+      dueDate: 'due_date',
+      dueTime: 'due_time',
+      location: 'location',
+      notificationId: 'notification_id',
+    };
 
-    const values = [id, ...Object.values(updates)];
+    const updates = Object.keys(body)
+      .filter(key => key in fieldMap)
+      .map(key => ({ column: fieldMap[key], value: body[key] }));
+
+    if (updates.length === 0) {
+      // Nothing to update — fetch and return the task untouched.
+      const current = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
+      const task = current.rows[0];
+      return res.json({
+        task: {
+          id: task.id,
+          userId: task.user_id,
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          status: task.status,
+          isCompleted: task.is_completed,
+          dueDate: task.due_date,
+          dueTime: task.due_time,
+          location: task.location,
+          notificationId: task.notification_id,
+          createdAt: task.created_at,
+          updatedAt: task.updated_at,
+        }
+      });
+    }
+
+    const setClause = updates.map((u, i) => `${u.column} = $${i + 1}`).join(', ');
+    const values = updates.map(u => u.value);
 
     const result = await pool.query(
-      `UPDATE tasks SET ${setClause} WHERE id = $1 RETURNING *`,
-      values
+      `UPDATE tasks SET ${setClause} WHERE id = $${updates.length + 1} RETURNING *`,
+      [...values, id]
     );
 
     const task = result.rows[0];

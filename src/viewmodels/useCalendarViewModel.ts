@@ -2,11 +2,19 @@
  * useCalendarViewModel
  * MVVM ViewModel for the Event Calendar module.
  * Manages calendar events: CRUD, date selection, markedDates, and notifications.
+ * Data is persisted via the PostgreSQL backend (apiService); the backend scopes
+ * events to the authenticated user via the JWT, so userId is used only for
+ * notification ownership, not for client-side filtering.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarEvent, CreateEventPayload, UpdateEventPayload, MarkedDates } from '../models/Event';
-import { getItem, setItem, STORAGE_KEYS } from '../services/storageService';
+import {
+  getEvents as apiGetEvents,
+  createEvent as apiCreateEvent,
+  updateEvent as apiUpdateEvent,
+  deleteEvent as apiDeleteEvent,
+} from '../services/apiService';
 import {
   scheduleEventReminder,
   cancelNotification,
@@ -27,10 +35,6 @@ export interface CalendarViewModel {
   getEventById: (id: string) => CalendarEvent | undefined;
   clearError: () => void;
   reload: () => Promise<void>;
-}
-
-function generateId(): string {
-  return `event_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function todayString(): string {
@@ -64,28 +68,7 @@ function isTimeInPast(date: string, time: string): boolean {
   return isPastTime(time);
 }
 
-/**
- * Checks if an event has expired (passed its end time by more than 1 week).
- * For timed events, compares the exact end time. For all-day events, compares the date.
- */
-function isEventExpired(event: CalendarEvent): boolean {
-  const now = new Date();
-  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  if (event.isAllDay) {
-    // For all-day events, check if the date is more than 1 week ago
-    const eventDate = new Date(event.date);
-    return eventDate < oneWeekAgo;
-  }
-
-  // For timed events, check if the end time is more than 1 week ago
-  const [year, month, day] = event.date.split('-').map(Number);
-  const [hours, minutes] = event.endTime.split(':').map(Number);
-  const eventEndTime = new Date(year, month - 1, day, hours, minutes);
-  return eventEndTime < oneWeekAgo;
-}
-
-export function useCalendarViewModel(userId: string): CalendarViewModel {
+export function useCalendarViewModel(_userId: string): CalendarViewModel {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,29 +78,15 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
   const reload = useCallback(async () => {
     try {
       setIsLoading(true);
-      const stored = await getItem<CalendarEvent[]>(STORAGE_KEYS.EVENTS);
-      const loadedEvents = stored ?? [];
-
-      // Clean up expired events (older than 1 week)
-      const activeEvents = loadedEvents.filter(e => !isEventExpired(e));
-      if (activeEvents.length !== loadedEvents.length) {
-        // Cancel notifications for expired events
-        for (const expired of loadedEvents.filter(e => isEventExpired(e))) {
-          if (expired.notificationId) {
-            await cancelNotification(expired.notificationId);
-          }
-        }
-        await setItem(STORAGE_KEYS.EVENTS, activeEvents);
-      }
-
-      setAllEvents(activeEvents);
-      setEvents(activeEvents.filter(e => e.userId === userId));
+      const loadedEvents = await apiGetEvents();
+      setAllEvents(loadedEvents);
+      setEvents(loadedEvents);
     } catch {
       setError('Failed to load events.');
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     reload();
@@ -156,8 +125,6 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
   );
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
-  // All write paths read from storage before writing so a burst of updates
-  // issued before React re-renders can't drop writes by reading a stale list.
 
   const createEvent = useCallback(
     async (payload: CreateEventPayload): Promise<CalendarEvent> => {
@@ -181,7 +148,6 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
         throw new Error('End time must be in the future.');
       }
 
-      const now = new Date().toISOString();
       let notificationId: string | null = null;
 
       if (!payload.isAllDay) {
@@ -192,36 +158,21 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
         );
       }
 
-      const event: CalendarEvent = {
+      const created = await apiCreateEvent({
         ...payload,
-        id: generateId(),
-        userId,
         notificationId,
-        createdAt: now,
-        updatedAt: now,
-      };
+      });
 
-      // Read storage to derive the merged list atomically — guards against
-      // a concurrent write from another user between the previous and this call.
-      const all = (await getItem<CalendarEvent[]>(STORAGE_KEYS.EVENTS)) ?? [];
-      const others = all.filter(e => e.userId !== userId);
-      const nextAll = [...others, ...all.filter(e => e.userId === userId), event];
-      await setItem(STORAGE_KEYS.EVENTS, nextAll);
-      setAllEvents(nextAll);
-      setEvents(nextAll.filter(e => e.userId === userId));
-      return event;
+      setAllEvents(prev => [...prev, created]);
+      setEvents(prev => [...prev, created]);
+      return created;
     },
-    [userId],
+    [],
   );
 
   const updateEvent = useCallback(
     async (id: string, payload: UpdateEventPayload): Promise<void> => {
-      // Read storage to avoid a stale closure on `events` / `allEvents`.
-      const all = (await getItem<CalendarEvent[]>(STORAGE_KEYS.EVENTS)) ?? [];
-      const userEvents = all.filter(e => e.userId === userId);
-
-      // Find the event to get its current date for validation
-      const event = userEvents.find(e => e.id === id);
+      const event = events.find(e => e.id === id);
       if (!event) return;
 
       // Check if the new date (if provided) is in the past
@@ -250,64 +201,54 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
         throw new Error('End time must be in the future.');
       }
 
-      const updated = await Promise.all(
-        userEvents.map(async e => {
-          if (e.id !== id) return e;
+      const isAllDayChanged = payload.isAllDay !== undefined && payload.isAllDay !== event.isAllDay;
 
-          const isAllDayChanged = payload.isAllDay !== undefined && payload.isAllDay !== e.isAllDay;
+      // Cancel any existing reminder whenever all-day status or time changes.
+      if ((isAllDayChanged || payload.date !== undefined || payload.startTime !== undefined)
+          && event.notificationId) {
+        await cancelNotification(event.notificationId);
+      }
 
-          // Cancel any existing reminder whenever all-day status or time changes.
-          if ((isAllDayChanged || payload.date !== undefined || payload.startTime !== undefined)
-              && e.notificationId) {
-            await cancelNotification(e.notificationId);
-          }
+      let notificationId: string | null = event.notificationId;
+      if (newIsAllDay) {
+        // All-day events have no reminder.
+        notificationId = null;
+      } else {
+        const newDate = payload.date ?? event.date;
+        const newStartTime = payload.startTime ?? event.startTime;
+        notificationId = await scheduleEventReminder(
+          payload.title ?? event.title,
+          newDate,
+          newStartTime,
+        );
+      }
 
-          let notificationId: string | null = e.notificationId;
-          if (newIsAllDay) {
-            // All-day events have no reminder.
-            notificationId = null;
-          } else {
-            const newDate = payload.date ?? e.date;
-            const newStartTime = payload.startTime ?? e.startTime;
-            notificationId = await scheduleEventReminder(
-              payload.title ?? e.title,
-              newDate,
-              newStartTime,
-            );
-          }
+      await apiUpdateEvent(id, { ...payload, notificationId });
 
-          return {
-            ...e,
-            ...payload,
-            notificationId,
-            updatedAt: new Date().toISOString(),
-          };
-        }),
-      );
+      const updated = {
+        ...event,
+        ...payload,
+        notificationId,
+        updatedAt: new Date().toISOString(),
+      };
 
-      const others = all.filter(e => e.userId !== userId);
-      await setItem(STORAGE_KEYS.EVENTS, [...others, ...updated]);
-      setAllEvents([...others, ...updated]);
-      setEvents(updated);
+      setAllEvents(prev => prev.map(e => (e.id === id ? updated : e)));
+      setEvents(prev => prev.map(e => (e.id === id ? updated : e)));
     },
-    [userId],
+    [events],
   );
 
   const deleteEvent = useCallback(
     async (id: string) => {
-      const all = (await getItem<CalendarEvent[]>(STORAGE_KEYS.EVENTS)) ?? [];
-      const userEvents = all.filter(e => e.userId === userId);
-      const target = userEvents.find(e => e.id === id);
+      const target = events.find(e => e.id === id);
       if (target?.notificationId) {
         await cancelNotification(target.notificationId);
       }
-      const remaining = userEvents.filter(e => e.id !== id);
-      const others = all.filter(e => e.userId !== userId);
-      await setItem(STORAGE_KEYS.EVENTS, [...others, ...remaining]);
-      setAllEvents([...others, ...remaining]);
-      setEvents(remaining);
+      await apiDeleteEvent(id);
+      setAllEvents(prev => prev.filter(e => e.id !== id));
+      setEvents(prev => prev.filter(e => e.id !== id));
     },
-    [userId],
+    [events],
   );
 
   const getEventById = (id: string) => events.find(e => e.id === id);

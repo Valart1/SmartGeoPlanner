@@ -2,6 +2,9 @@
  * AuthContext
  * Provides global authentication state via React Context + useReducer.
  * Wraps the entire app to expose auth state and actions everywhere.
+ *
+ * Auth flows entirely through the PostgreSQL backend (apiService):
+ * login/signup persist a JWT; rehydration validates that JWT via /auth/me.
  */
 
 import React, {
@@ -14,11 +17,14 @@ import React, {
 import { User, AuthState, SignupPayload } from '../models/User';
 import { getItem, setItem, removeItem, STORAGE_KEYS } from '../services/storageService';
 import {
-  accountExists,
   authenticateAccount,
   registerAccount,
-  createLocalAdminIfNone,
 } from '../services/authService';
+import {
+  getCurrentUser,
+  getToken,
+  removeToken,
+} from '../services/apiService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -81,17 +87,23 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
-  // Rehydrate user session on app start
+  // Rehydrate session on app start: validate the stored JWT via /auth/me.
   useEffect(() => {
     (async () => {
-      // Try to create local admin for testing if backend not available
-      await createLocalAdminIfNone();
-      
-      const stored = await getItem<User>(STORAGE_KEYS.USER);
-      if (stored && await accountExists(stored.email)) {
-        dispatch({ type: 'LOGIN_SUCCESS', payload: stored });
-      } else {
-        if (stored) await removeItem(STORAGE_KEYS.USER);
+      const token = await getToken();
+      if (!token) {
+        dispatch({ type: 'SET_LOADING', payload: false });
+        return;
+      }
+
+      try {
+        const user = await getCurrentUser();
+        await setItem(STORAGE_KEYS.USER, user);
+        dispatch({ type: 'LOGIN_SUCCESS', payload: user });
+      } catch {
+        // Token is invalid/expired — discard it and the cached user.
+        await removeToken();
+        await removeItem(STORAGE_KEYS.USER);
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     })();
@@ -100,7 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string): Promise<boolean> => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      await new Promise(r => setTimeout(r, 400));
       const user = await authenticateAccount(email, password);
       await setItem(STORAGE_KEYS.USER, user);
       dispatch({ type: 'LOGIN_SUCCESS', payload: user });
@@ -117,7 +128,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = async (payload: SignupPayload): Promise<boolean> => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      await new Promise(r => setTimeout(r, 400));
       const user = await registerAccount(payload);
       await setItem(STORAGE_KEYS.USER, user);
       dispatch({ type: 'LOGIN_SUCCESS', payload: user });
@@ -132,20 +142,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async (): Promise<void> => {
+    await removeToken();
     await removeItem(STORAGE_KEYS.USER);
     dispatch({ type: 'LOGOUT' });
   };
 
-  const forgotPassword = async (email: string): Promise<boolean> => {
+  // Password reset is not yet backed by an endpoint. Don't gate on a local
+  // account check (that path is gone) — accept the request and let the UI
+  // proceed. Wire a real endpoint here when one exists.
+  const forgotPassword = async (_email: string): Promise<boolean> => {
     dispatch({ type: 'SET_LOADING', payload: true });
     await new Promise(r => setTimeout(r, 400));
-
-    const exists = await accountExists(email);
-    if (!exists) {
-      dispatch({ type: 'SET_ERROR', payload: 'No account exists for that email or username.' });
-      return false;
-    }
-
     dispatch({ type: 'SET_LOADING', payload: false });
     return true;
   };

@@ -50,7 +50,7 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign(
       { id: user.id, email: user.email, username: user.username },
       secret,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
     );
 
     res.status(201).json({ user, token });
@@ -73,7 +73,7 @@ router.post('/login', async (req, res) => {
 
     // Find user
     const result = await pool.query(
-      'SELECT id, email, username, display_name, password_hash, is_email_verified, created_at FROM users WHERE email = $1 OR username = $2',
+      'SELECT id, email, username, display_name, password_hash, is_email_verified, is_admin, created_at FROM users WHERE email = $1 OR username = $2',
       [identifierKey, identifierKey]
     );
 
@@ -94,19 +94,20 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { id: user.id, email: user.email, username: user.username },
       secret,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
     );
 
-    res.json({ 
+    res.json({
       user: {
         id: user.id,
         email: user.email,
         username: user.username,
         displayName: user.display_name,
         isEmailVerified: user.is_email_verified,
+        isAdmin: user.is_admin,
         createdAt: user.created_at
-      }, 
-      token 
+      },
+      token
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -118,7 +119,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, username, display_name, is_email_verified, created_at FROM users WHERE id = $1',
+      'SELECT id, email, username, display_name, is_email_verified, is_admin, created_at FROM users WHERE id = $1',
       [req.user!.id]
     );
 
@@ -134,6 +135,7 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
         username: user.username,
         displayName: user.display_name,
         isEmailVerified: user.is_email_verified,
+        isAdmin: user.is_admin,
         createdAt: user.created_at
       }
     });

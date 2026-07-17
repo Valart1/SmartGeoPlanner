@@ -17,11 +17,23 @@ import TaskCard from '../components/TaskCard';
 import EventCard from '../components/EventCard';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
 import { scheduleTestNotification } from '../../services/notificationService';
+import { useNavigation } from '@react-navigation/native';
+import { Task } from '../../models/Task';
+import { CalendarEvent } from '../../models/Event';
 
 export default function DashboardScreen() {
   const { user, logout } = useAuth();
   const { taskVM, calendarVM } = usePlanner();
   const locationVM = useLocationViewModel();
+  const navigation = useNavigation();
+  const openEditTask = (task: Task) => {
+    // Navigate to Tasks tab
+    (navigation as any).navigate('Tasks');
+  };
+  const openEditEvent = (event: CalendarEvent) => {
+    // Navigate to Calendar tab
+    (navigation as any).navigate('Calendar');
+  };
 
   useEffect(() => {
     locationVM.fetchCurrentLocation();
@@ -71,7 +83,7 @@ export default function DashboardScreen() {
           <Text style={styles.username}>{user?.displayName ?? 'Planner'} 👋</Text>
         </View>
         <TouchableOpacity onPress={logout} style={styles.logoutBtn} accessibilityLabel="Logout">
-          <Text style={styles.logoutIcon}>⏻</Text>
+          <Text style={styles.logoutIcon}>🚪</Text>
         </TouchableOpacity>
       </View>
 
@@ -106,7 +118,7 @@ export default function DashboardScreen() {
           <EmptyState icon="📅" message="No events scheduled for today" />
         ) : (
           todayEvents.map(event => (
-            <EventCard key={event.id} event={event} />
+            <EventCard key={event.id} event={event} onEdit={openEditEvent} />
           ))
         )}
 
@@ -120,7 +132,7 @@ export default function DashboardScreen() {
               key={task.id}
               task={task}
               onToggleComplete={taskVM.toggleComplete}
-              onEdit={() => {}}
+              onEdit={openEditTask}
               onDelete={taskVM.deleteTask}
             />
           ))
@@ -187,7 +199,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.base, paddingTop: Spacing.xl, paddingBottom: Spacing.md,
+    paddingHorizontal: Spacing.base, paddingTop: Spacing.xl + 10, paddingBottom: Spacing.md,
   },
   greeting: { fontSize: Typography.fontSize.base, color: Colors.textSecondary },
   username: { fontSize: Typography.fontSize.xl, fontWeight: '800', color: Colors.textPrimary },

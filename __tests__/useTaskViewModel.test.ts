@@ -232,4 +232,56 @@ describe('useTaskViewModel', () => {
     const missing = result.current.getTaskById('non-existent-id');
     expect(missing).toBeUndefined();
   });
+
+  // ── Regression: stale-closure in CRUD ─────────────────────────────────────
+  // Two updates issued back-to-back in the same act() must both be visible
+  // in the final task. Pre-fix, the second update saw a stale `tasks` list
+  // and could drop the first update.
+
+  it('applies back-to-back updates without losing intermediate state', async () => {
+    const { result } = renderHook(() => useTaskViewModel(USER_ID));
+    await act(async () => {});
+
+    let taskId: string;
+    await act(async () => {
+      const task = await result.current.createTask(basePayload);
+      taskId = task.id;
+    });
+
+    await act(async () => {
+      await result.current.updateTask(taskId!, { title: 'First update' });
+      await result.current.updateTask(taskId!, { priority: 'high' });
+    });
+
+    const after = result.current.tasks.find(t => t.id === taskId);
+    expect(after).toBeDefined();
+    expect(after!.title).toBe('First update');
+    expect(after!.priority).toBe('high');
+  });
+
+  // Clearing the due date must also clear the scheduled notification id,
+  // otherwise the reminder would still fire after the task becomes dateless.
+
+  it('clears the notification id when a task loses its due date', async () => {
+    const { result } = renderHook(() => useTaskViewModel(USER_ID));
+    await act(async () => {});
+
+    let taskId: string;
+    await act(async () => {
+      const task = await result.current.createTask({
+        ...basePayload,
+        dueDate: '2099-01-01',
+        dueTime: '09:00',
+      });
+      taskId = task.id;
+    });
+
+    expect(result.current.tasks[0].notificationId).toBe('mock-notification-id');
+
+    await act(async () => {
+      await result.current.updateTask(taskId!, { dueDate: null, dueTime: null });
+    });
+
+    expect(result.current.tasks[0].notificationId).toBeNull();
+  });
 });

@@ -17,6 +17,7 @@ import {
   accountExists,
   authenticateAccount,
   registerAccount,
+  createLocalAdminIfNone,
 } from '../services/authService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -83,6 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Rehydrate user session on app start
   useEffect(() => {
     (async () => {
+      // Try to create local admin for testing if backend not available
+      await createLocalAdminIfNone();
+      
       const stored = await getItem<User>(STORAGE_KEYS.USER);
       if (stored && await accountExists(stored.email)) {
         dispatch({ type: 'LOGIN_SUCCESS', payload: stored });

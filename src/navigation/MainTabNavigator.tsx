@@ -1,7 +1,7 @@
 /**
  * MainTabNavigator
  * Bottom tab navigator for the authenticated app:
- * Dashboard | Tasks | Calendar | Map
+ * Dashboard | Tasks | Calendar | Map | Admin
  */
 
 import React from 'react';
@@ -11,14 +11,17 @@ import DashboardScreen from '../views/dashboard/DashboardScreen';
 import TaskListScreen from '../views/tasks/TaskListScreen';
 import CalendarScreen from '../views/calendar/CalendarScreen';
 import MapScreen from '../views/map/MapScreen';
+import AdminDashboardScreen from '../views/dashboard/AdminDashboardScreen';
 import { Colors, BorderRadius } from '../theme/theme';
 import { PlannerProvider } from '../context/PlannerContext';
+import { useAuth } from '../context/AuthContext';
 
 export type MainTabParamList = {
   Dashboard: undefined;
   Tasks: undefined;
   Calendar: undefined;
   Map: undefined;
+  Admin: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -61,6 +64,9 @@ const tabStyles = StyleSheet.create({
 });
 
 export default function MainTabNavigator() {
+  const { user } = useAuth();
+  const isAdmin = user?.isAdmin || false;
+
   return (
     <PlannerProvider>
     <Tab.Navigator
@@ -113,6 +119,17 @@ export default function MainTabNavigator() {
           ),
         }}
       />
+      {isAdmin && (
+        <Tab.Screen
+          name="Admin"
+          component={AdminDashboardScreen}
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <TabIcon icon="👑" focused={focused} />
+            ),
+          }}
+        />
+      )}
     </Tab.Navigator>
     </PlannerProvider>
   );

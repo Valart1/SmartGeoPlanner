@@ -173,4 +173,13 @@ npm.cmd test
 
 
 
+##if someone takes the project
 
+npm uninstall @react-native/jest-preset
+
+
+rm -rf node_modules package-lock.json
+
+ACTIVATE BACKEND
+cd backend
+npm run dev

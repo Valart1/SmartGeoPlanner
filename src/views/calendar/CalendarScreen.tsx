@@ -15,10 +15,14 @@ import { usePlanner } from '../../context/PlannerContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
 import EventCard from '../components/EventCard';
 import LocationPicker from '../components/LocationPicker';
-import { CreateEventPayload, EventColor } from '../../models/Event';
+import { CalendarEvent, CreateEventPayload, EventColor } from '../../models/Event';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
 
 const EVENT_COLORS: EventColor[] = ['#6C63FF', '#FF6584', '#43C6AC', '#F7971E', '#56CCF2'];
+
+function todayString(): string {
+  return new Date().toISOString().split('T')[0];
+}
 
 export default function CalendarScreen() {
   const { calendarVM: vm } = usePlanner();
@@ -26,6 +30,7 @@ export default function CalendarScreen() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
   // Form
   const [title, setTitle] = useState('');
@@ -37,26 +42,54 @@ export default function CalendarScreen() {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
-  const openModal = () => {
+  const openCreateModal = () => {
+    setEditingEvent(null);
     setTitle(''); setDescription(''); setColor('#6C63FF');
     setIsAllDay(false);
-    setStartTime(new Date()); setEndTime(new Date(Date.now() + 3600000));
+    // Set start time to now (or next hour if current time is in the past)
+    const now = new Date();
+    const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+    setStartTime(oneHourLater);
+    setEndTime(new Date(now.getTime() + 2 * 60 * 60 * 1000));
     locVM.setSelectedMapLocation(null); setShowLocationPicker(false);
     setModalVisible(true);
   };
+
+  const openEditModal = (event: CalendarEvent) => {
+    setEditingEvent(event);
+    setTitle(event.title);
+    setDescription(event.description);
+    setColor(event.color);
+    setIsAllDay(event.isAllDay);
+    setStartTime(new Date(`2000-01-01T${event.startTime}`));
+    setEndTime(new Date(`2000-01-01T${event.endTime}`));
+    locVM.setSelectedMapLocation(event.location);
+    setShowLocationPicker(!!event.location);
+    setModalVisible(true);
+  };
+
+  const openModal = openCreateModal;
 
   const fmt = (d: Date) => `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
 
   const handleSave = async () => {
     if (!title.trim()) { Alert.alert('Error', 'Title is required'); return; }
-    const payload: CreateEventPayload = {
-      title: title.trim(), description: description.trim(),
-      date: vm.selectedDate, color, isAllDay,
-      startTime: fmt(startTime), endTime: fmt(endTime),
-      location: showLocationPicker ? locVM.selectedMapLocation : null,
-    };
-    await vm.createEvent(payload);
-    setModalVisible(false);
+    try {
+      const payload: CreateEventPayload = {
+        title: title.trim(), description: description.trim(),
+        date: vm.selectedDate, color, isAllDay,
+        startTime: fmt(startTime), endTime: fmt(endTime),
+        location: showLocationPicker ? locVM.selectedMapLocation : null,
+      };
+      if (editingEvent) {
+        await vm.updateEvent(editingEvent.id, payload);
+      } else {
+        await vm.createEvent(payload);
+      }
+      setModalVisible(false);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message || 'Failed to save event');
+    }
   };
 
   const handleDeleteEvent = (id: string) => {
@@ -83,6 +116,7 @@ export default function CalendarScreen() {
           current={vm.selectedDate}
           onDayPress={day => vm.setSelectedDate(day.dateString)}
           markedDates={vm.markedDates}
+          minDate={todayString()}
           theme={{
             backgroundColor: Colors.background,
             calendarBackground: Colors.card,
@@ -127,7 +161,7 @@ export default function CalendarScreen() {
             </View>
           ) : (
             vm.eventsForSelectedDate.map(event => (
-              <EventCard key={event.id} event={event} onDelete={handleDeleteEvent} />
+              <EventCard key={event.id} event={event} onEdit={openEditModal} onDelete={handleDeleteEvent} />
             ))
           )}
         </View>
@@ -140,7 +174,7 @@ export default function CalendarScreen() {
             <TouchableOpacity onPress={() => setModalVisible(false)}>
               <Text style={styles.modalCancel}>Cancel</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>New Event</Text>
+            <Text style={styles.modalTitle}>{editingEvent ? 'Edit Event' : 'New Event'}</Text>
             <TouchableOpacity onPress={handleSave}>
               <Text style={styles.modalSave}>Save</Text>
             </TouchableOpacity>
@@ -179,16 +213,65 @@ export default function CalendarScreen() {
                 <TouchableOpacity style={styles.timeBtn} onPress={() => setShowStartPicker(true)}>
                   <Text style={styles.timeBtnText}>{fmt(startTime)}</Text>
                 </TouchableOpacity>
-                {showStartPicker && (
-                  <DateTimePicker value={startTime} mode="time" display="spinner" onChange={(_, d) => { setShowStartPicker(false); if (d) setStartTime(d); }} themeVariant="dark" />
-                )}
+                 {showStartPicker && (
+                   <DateTimePicker
+                     value={startTime}
+                     mode="time"
+                     display="spinner"
+                     onChange={(_, d) => {
+                       setShowStartPicker(false);
+                       if (d) {
+                         // If selecting time for today, check if it's in the past
+                         if (vm.selectedDate === todayString()) {
+                           const [hours, minutes] = [d.getHours(), d.getMinutes()];
+                           const now = new Date();
+                           const selectedTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+                           if (selectedTime < now) {
+                             Alert.alert('Error', 'Cannot select a time that has already passed today.');
+                             return;
+                           }
+                         }
+                         setStartTime(d);
+                       }
+                     }}
+                     themeVariant="dark"
+                   />
+                 )}
 
                 <Text style={styles.fieldLabel}>End Time</Text>
                 <TouchableOpacity style={styles.timeBtn} onPress={() => setShowEndPicker(true)}>
                   <Text style={styles.timeBtnText}>{fmt(endTime)}</Text>
                 </TouchableOpacity>
                 {showEndPicker && (
-                  <DateTimePicker value={endTime} mode="time" display="spinner" onChange={(_, d) => { setShowEndPicker(false); if (d) setEndTime(d); }} themeVariant="dark" />
+                  <DateTimePicker
+                    value={endTime}
+                    mode="time"
+                    display="spinner"
+                    onChange={(_, d) => {
+                      setShowEndPicker(false);
+                      if (d) {
+                        // If selecting time for today, check if it's in the past
+                        if (vm.selectedDate === todayString()) {
+                          const [hours, minutes] = [d.getHours(), d.getMinutes()];
+                          const now = new Date();
+                          const selectedTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+                          if (selectedTime < now) {
+                            Alert.alert('Error', 'Cannot select a time that has already passed today.');
+                            return;
+                          }
+                        }
+                        // Check if end time is after start time
+                        const startTimeStr = fmt(startTime);
+                        const endTimeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+                        if (endTimeStr <= startTimeStr) {
+                          Alert.alert('Error', 'End time must be after start time.');
+                          return;
+                        }
+                        setEndTime(d);
+                      }
+                    }}
+                    themeVariant="dark"
+                  />
                 )}
               </>
             )}

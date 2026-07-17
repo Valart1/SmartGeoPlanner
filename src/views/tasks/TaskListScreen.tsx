@@ -43,7 +43,11 @@ export default function TaskListScreen() {
 
   const openCreateModal = () => {
     setEditingTask(null);
-    setTitle(''); setDescription(''); setPriority('medium'); setDueDate(null);
+    setTitle(''); setDescription(''); setPriority('medium');
+    // Set due date to now (or next hour if current time is in the past)
+    const now = new Date();
+    const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+    setDueDate(oneHourLater);
     locVM.setSelectedMapLocation(null);
     setShowLocationPicker(false);
     setModalVisible(true);
@@ -60,24 +64,28 @@ export default function TaskListScreen() {
 
   const handleSave = async () => {
     if (!title.trim()) { Alert.alert('Error', 'Title is required'); return; }
-    const dueDateStr = dueDate ? dueDate.toISOString().split('T')[0] : null;
-    const dueTimeStr = dueDate
-      ? `${dueDate.getHours().toString().padStart(2, '0')}:${dueDate.getMinutes().toString().padStart(2, '0')}`
-      : null;
+    try {
+      const dueDateStr = dueDate ? dueDate.toISOString().split('T')[0] : null;
+      const dueTimeStr = dueDate
+        ? `${dueDate.getHours().toString().padStart(2, '0')}:${dueDate.getMinutes().toString().padStart(2, '0')}`
+        : null;
 
-    const payload: CreateTaskPayload = {
-      title: title.trim(), description: description.trim(),
-      priority, status: 'pending', isCompleted: false,
-      dueDate: dueDateStr, dueTime: dueTimeStr,
-      location: showLocationPicker ? locVM.selectedMapLocation : null,
-    };
+      const payload: CreateTaskPayload = {
+        title: title.trim(), description: description.trim(),
+        priority, status: 'pending', isCompleted: false,
+        dueDate: dueDateStr, dueTime: dueTimeStr,
+        location: showLocationPicker ? locVM.selectedMapLocation : null,
+      };
 
-    if (editingTask) {
-      await vm.updateTask(editingTask.id, payload);
-    } else {
-      await vm.createTask(payload);
+      if (editingTask) {
+        await vm.updateTask(editingTask.id, payload);
+      } else {
+        await vm.createTask(payload);
+      }
+      setModalVisible(false);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message || 'Failed to save task');
     }
-    setModalVisible(false);
   };
 
   const handleDelete = (id: string) => {
@@ -221,7 +229,24 @@ export default function TaskListScreen() {
                 value={dueDate ?? new Date()}
                 mode="time"
                 display="spinner"
-                onChange={(_, date) => { setShowTimePicker(false); if (date) setDueDate(d => d ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), date.getHours(), date.getMinutes()) : date); }}
+                onChange={(_, date) => {
+                  setShowTimePicker(false);
+                  if (date) {
+                    const today = new Date().toISOString().split('T')[0];
+                    const selectedDate = dueDate ? dueDate.toISOString().split('T')[0] : today;
+                    // If selecting time for today, check if it's in the past
+                    if (selectedDate === today) {
+                      const [hours, minutes] = [date.getHours(), date.getMinutes()];
+                      const now = new Date();
+                      const selectedTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+                      if (selectedTime < now) {
+                        Alert.alert('Error', 'Cannot select a time that has already passed today.');
+                        return;
+                      }
+                    }
+                    setDueDate(d => d ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), date.getHours(), date.getMinutes()) : date);
+                  }
+                }}
                 themeVariant="dark"
               />
             )}

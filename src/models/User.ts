@@ -10,6 +10,7 @@ export interface User {
   displayName?: string;
   avatarUrl?: string;
   isEmailVerified: boolean;
+  isAdmin?: boolean;
   createdAt: string; // ISO 8601
 }
 

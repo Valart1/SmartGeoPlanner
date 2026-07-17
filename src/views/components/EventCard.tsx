@@ -11,28 +11,37 @@ import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
 interface EventCardProps {
   event: CalendarEvent;
   onPress?: (event: CalendarEvent) => void;
+  onEdit?: (event: CalendarEvent) => void;
   onDelete?: (id: string) => void;
 }
 
-export default function EventCard({ event, onPress, onDelete }: EventCardProps) {
+export default function EventCard({ event, onPress, onEdit, onDelete }: EventCardProps) {
   return (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => onPress?.(event)}
-      activeOpacity={0.8}
-      accessibilityLabel={`Event: ${event.title}`}
-    >
+    <View style={styles.card}>
       {/* Left accent bar in event color */}
       <View style={[styles.accentBar, { backgroundColor: event.color }]} />
 
       <View style={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={styles.title} numberOfLines={1}>{event.title}</Text>
+          <TouchableOpacity onPress={() => onPress?.(event)} activeOpacity={0.8} style={styles.titleTouchable}>
+            <Text style={styles.title} numberOfLines={1}>{event.title}</Text>
+          </TouchableOpacity>
+          {onEdit && (
+            <TouchableOpacity
+              onPress={() => onEdit(event)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel={`Edit event ${event.title}`}
+              style={styles.actionBtn}
+            >
+              <Text style={styles.editIcon}>✏️</Text>
+            </TouchableOpacity>
+          )}
           {onDelete && (
             <TouchableOpacity
               onPress={() => onDelete(event.id)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityLabel={`Delete event ${event.title}`}
+              style={styles.actionBtn}
             >
               <Text style={styles.deleteIcon}>✕</Text>
             </TouchableOpacity>
@@ -67,7 +76,7 @@ export default function EventCard({ event, onPress, onDelete }: EventCardProps) 
           )}
         </View>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -94,12 +103,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  title: {
+  titleTouchable: {
     flex: 1,
+  },
+  title: {
     fontSize: Typography.fontSize.md,
     fontWeight: '600',
     color: Colors.textPrimary,
-    marginRight: Spacing.sm,
+  },
+  actionBtn: {
+    padding: 4,
+  },
+  editIcon: {
+    fontSize: 14,
+    color: Colors.textMuted,
   },
   deleteIcon: {
     fontSize: 14,

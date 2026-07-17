@@ -35,6 +35,20 @@ function generateId(): string {
   return `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function todayString(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Checks if a time string (HH:MM) is in the past for today.
+ */
+function isPastTime(time: string): boolean {
+  const now = new Date();
+  const [hours, minutes] = time.split(':').map(Number);
+  const eventTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+  return eventTime < now;
+}
+
 /**
  * Returns true if a task is past its due date and not completed.
  */
@@ -43,6 +57,31 @@ function isOverdue(task: Task): boolean {
   const due = new Date(task.dueDate);
   due.setHours(23, 59, 59);
   return due < new Date();
+}
+
+/**
+ * Checks if a task has expired (passed its due time by more than 1 week).
+ * Expired tasks are automatically removed.
+ */
+function isTaskExpired(task: Task): boolean {
+  if (task.isCompleted) return false;
+  if (!task.dueDate) return false;
+
+  const now = new Date();
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  if (task.dueTime) {
+    // For timed tasks, check if the due time is more than 1 week ago
+    const [year, month, day] = task.dueDate.split('-').map(Number);
+    const [hours, minutes] = task.dueTime.split(':').map(Number);
+    const dueTime = new Date(year, month - 1, day, hours, minutes);
+    return dueTime < oneWeekAgo;
+  }
+
+  // For date-only tasks, check if the date is more than 1 week ago
+  const dueDate = new Date(task.dueDate);
+  dueDate.setHours(23, 59, 59);
+  return dueDate < oneWeekAgo;
 }
 
 export function useTaskViewModel(userId: string): TaskViewModel {
@@ -55,7 +94,21 @@ export function useTaskViewModel(userId: string): TaskViewModel {
     try {
       setIsLoading(true);
       const stored = await getItem<Task[]>(STORAGE_KEYS.TASKS);
-      const userTasks = (stored ?? []).filter(t => t.userId === userId);
+      const loadedTasks = stored ?? [];
+
+      // Clean up expired tasks (older than 1 week)
+      const activeTasks = loadedTasks.filter(t => !isTaskExpired(t));
+      if (activeTasks.length !== loadedTasks.length) {
+        // Cancel notifications for expired tasks
+        for (const expired of loadedTasks.filter(t => isTaskExpired(t))) {
+          if (expired.notificationId) {
+            await cancelNotification(expired.notificationId);
+          }
+        }
+        await setItem(STORAGE_KEYS.TASKS, activeTasks);
+      }
+
+      const userTasks = activeTasks.filter(t => t.userId === userId);
       setTasks(userTasks);
     } catch (e) {
       setError('Failed to load tasks.');
@@ -68,19 +121,22 @@ export function useTaskViewModel(userId: string): TaskViewModel {
     reload();
   }, [reload]);
 
-  // ── Persist helper ─────────────────────────────────────────────────────────
-  const persist = async (updated: Task[]) => {
-    // Merge with other users' tasks before saving
-    const all = await getItem<Task[]>(STORAGE_KEYS.TASKS) ?? [];
-    const others = all.filter(t => t.userId !== userId);
-    await setItem(STORAGE_KEYS.TASKS, [...others, ...updated]);
-    setTasks(updated);
-  };
-
   // ── CRUD ───────────────────────────────────────────────────────────────────
+  // All write paths read from storage before writing so a burst of updates
+  // issued before React re-renders can't drop writes by reading a stale list.
 
   const createTask = useCallback(
     async (payload: CreateTaskPayload): Promise<Task> => {
+      // Prevent creating tasks for past dates
+      if (payload.dueDate && payload.dueDate < todayString()) {
+        throw new Error('Cannot create tasks for past dates.');
+      }
+
+      // Prevent creating tasks with past time for today
+      if (payload.dueDate && payload.dueDate === todayString() && payload.dueTime && isPastTime(payload.dueTime)) {
+        throw new Error('Cannot create tasks with a time that has already passed today.');
+      }
+
       const now = new Date().toISOString();
       let notificationId: string | null = null;
 
@@ -101,37 +157,64 @@ export function useTaskViewModel(userId: string): TaskViewModel {
         updatedAt: now,
       };
 
-      const updated = [...tasks, task];
-      await persist(updated);
+      // Read storage to derive the merged list atomically — guards against
+      // a concurrent write from another user between the previous and this call.
+      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
+      const others = all.filter(t => t.userId !== userId);
+      const next = [...others, ...all.filter(t => t.userId === userId), task];
+      await setItem(STORAGE_KEYS.TASKS, next);
+      setTasks(next.filter(t => t.userId === userId));
       return task;
     },
-    [tasks, userId],
+    [userId],
   );
 
   const updateTask = useCallback(
     async (id: string, payload: UpdateTaskPayload): Promise<void> => {
+      // Read the current user-scoped list from storage to avoid a stale closure.
+      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
+      const userTasks = all.filter(t => t.userId === userId);
+
+      // Find the task to get its current due date/time for validation
+      const task = userTasks.find(t => t.id === id);
+      if (!task) return;
+
+      // Check if the new due date (if provided) is in the past
+      if (payload.dueDate !== undefined && payload.dueDate !== null && payload.dueDate < todayString()) {
+        throw new Error('Cannot update task to a past date.');
+      }
+
+      // Check if the new due time (if provided) is in the past for today
+      const targetDate = payload.dueDate !== undefined && payload.dueDate !== null ? payload.dueDate : task.dueDate;
+      const targetTime = payload.dueTime !== undefined && payload.dueTime !== null ? payload.dueTime : task.dueTime;
+      if (targetDate && targetDate === todayString() && targetTime && isPastTime(targetTime)) {
+        throw new Error('Cannot update task to a time that has already passed today.');
+      }
+
       const updated = await Promise.all(
-        tasks.map(async t => {
+        userTasks.map(async t => {
           if (t.id !== id) return t;
 
-          // Reschedule notification if due date/time changed
-          if (
-            (payload.dueDate !== undefined || payload.dueTime !== undefined) &&
-            t.notificationId
-          ) {
+          const newDueDate = payload.dueDate !== undefined ? payload.dueDate : t.dueDate;
+          const newDueTime = payload.dueTime !== undefined ? payload.dueTime : t.dueTime;
+          const dueChanged =
+            payload.dueDate !== undefined || payload.dueTime !== undefined;
+
+          // Reschedule notification whenever the due pair changes.
+          if (dueChanged && t.notificationId) {
             await cancelNotification(t.notificationId);
           }
 
-          const newDueDate = payload.dueDate ?? t.dueDate;
-          const newDueTime = payload.dueTime ?? t.dueTime;
           let notificationId = t.notificationId;
-
           if (newDueDate && newDueTime) {
             notificationId = await scheduleTaskReminder(
               payload.title ?? t.title,
               newDueDate,
               newDueTime,
             );
+          } else if (dueChanged) {
+            // The task lost its due date/time — clear the reminder.
+            notificationId = null;
           }
 
           return {
@@ -142,26 +225,35 @@ export function useTaskViewModel(userId: string): TaskViewModel {
           };
         }),
       );
-      await persist(updated);
+
+      const others = all.filter(t => t.userId !== userId);
+      await setItem(STORAGE_KEYS.TASKS, [...others, ...updated]);
+      setTasks(updated);
     },
-    [tasks],
+    [userId],
   );
 
   const deleteTask = useCallback(
-    async (id: string): Promise<void> => {
-      const task = tasks.find(t => t.id === id);
-      if (task?.notificationId) {
-        await cancelNotification(task.notificationId);
+    async (id: string) => {
+      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
+      const userTasks = all.filter(t => t.userId === userId);
+      const target = userTasks.find(t => t.id === id);
+      if (target?.notificationId) {
+        await cancelNotification(target.notificationId);
       }
-      const updated = tasks.filter(t => t.id !== id);
-      await persist(updated);
+      const remaining = userTasks.filter(t => t.id !== id);
+      const others = all.filter(t => t.userId !== userId);
+      await setItem(STORAGE_KEYS.TASKS, [...others, ...remaining]);
+      setTasks(remaining);
     },
-    [tasks],
+    [userId],
   );
 
   const toggleComplete = useCallback(
-    async (id: string): Promise<void> => {
-      const updated = tasks.map(t =>
+    async (id: string) => {
+      const all = (await getItem<Task[]>(STORAGE_KEYS.TASKS)) ?? [];
+      const userTasks = all.filter(t => t.userId === userId);
+      const updated = userTasks.map(t =>
         t.id === id
           ? {
               ...t,
@@ -171,9 +263,11 @@ export function useTaskViewModel(userId: string): TaskViewModel {
             }
           : t,
       );
-      await persist(updated);
+      const others = all.filter(t => t.userId !== userId);
+      await setItem(STORAGE_KEYS.TASKS, [...others, ...updated]);
+      setTasks(updated);
     },
-    [tasks],
+    [userId],
   );
 
   const getTaskById = (id: string) => tasks.find(t => t.id === id);

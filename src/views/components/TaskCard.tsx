@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Task } from '../../models/Task';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
+import { formatCalendarDate } from '../../utils/dateUtils';
 
 interface TaskCardProps {
   task: Task;
@@ -38,8 +39,7 @@ export default function TaskCard({ task, onToggleComplete, onEdit, onDelete }: T
 
   const formatDueDate = (date: string | null, time: string | null): string => {
     if (!date) return '';
-    const d = new Date(date);
-    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const dateStr = formatCalendarDate(date);
     return time ? `${dateStr} at ${time}` : dateStr;
   };
 

@@ -16,7 +16,7 @@ router.get('/users', adminMiddleware, async (req: AuthRequest, res) => {
       ORDER BY created_at DESC
     `);
 
-    const users = result.rows.map(row => ({
+const users = result.rows.map((row: any) => ({
       id: row.id,
       email: row.email,
       username: row.username,
@@ -46,7 +46,7 @@ router.get('/tasks', adminMiddleware, async (req: AuthRequest, res) => {
       ORDER BY t.created_at DESC
     `);
 
-    const tasks = result.rows.map(row => ({
+const tasks = result.rows.map((row: any) => ({
       id: row.id,
       userId: row.user_id,
       title: row.title,
@@ -84,7 +84,7 @@ router.get('/events', adminMiddleware, async (req: AuthRequest, res) => {
       ORDER BY e.created_at DESC
     `);
 
-    const events = result.rows.map(row => ({
+const events = result.rows.map((row: any) => ({
       id: row.id,
       userId: row.user_id,
       title: row.title,

@@ -145,9 +145,51 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
+// Password-reset placeholder. This checks the backend only; no local account
+// fallback exists in the frontend.
+router.post('/forgot-password', async (req, res) => {
+  const { identifier } = req.body;
+
+  if (!identifier) {
+    return res.status(400).json({ error: 'Email or username is required' });
+  }
+
+  try {
+    const identifierKey = String(identifier).trim().toLowerCase();
+    const result = await pool.query(
+      'SELECT id FROM users WHERE email = $1 OR username = $1',
+      [identifierKey]
+    );
+
+    res.json({ exists: result.rows.length > 0 });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Logout (client-side token removal)
 router.post('/logout', authMiddleware, (req, res) => {
   res.json({ message: 'Logged out successfully' });
+});
+
+// Delete current user account. Related tasks/events are removed by ON DELETE CASCADE.
+router.delete('/me', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM users WHERE id = $1 RETURNING id',
+      [req.user!.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ message: 'Account deleted' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 export default router;

@@ -1,6 +1,6 @@
 /**
  * MapScreen - Location module view.
- * Shows current-user task pins and all locally saved event pins.
+ * Shows current-user task pins and backend event pins.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';

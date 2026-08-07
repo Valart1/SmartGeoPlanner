@@ -4,11 +4,12 @@
  * Consumes location, task, and calendar ViewModels.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   RefreshControl, StatusBar, Alert,
 } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { usePlanner } from '../../context/PlannerContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
@@ -17,15 +18,17 @@ import TaskCard from '../components/TaskCard';
 import EventCard from '../components/EventCard';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
 import { scheduleTestNotification } from '../../services/notificationService';
-import { useNavigation } from '@react-navigation/native';
+import { todayString } from '../../utils/dateUtils';
 import { Task } from '../../models/Task';
 import { CalendarEvent } from '../../models/Event';
 
 export default function DashboardScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth();
   const { taskVM, calendarVM } = usePlanner();
   const locationVM = useLocationViewModel();
   const navigation = useNavigation();
+  const [showSettings, setShowSettings] = useState(false);
+  
   const openEditTask = (task: Task) => {
     // Navigate to Tasks tab
     (navigation as any).navigate('Tasks');
@@ -35,9 +38,44 @@ export default function DashboardScreen() {
     (navigation as any).navigate('Calendar');
   };
 
+  const handleLogout = async () => {
+    setShowSettings(false);
+    await logout();
+  };
+
+  const handleDeleteAccount = () => {
+    setShowSettings(false);
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all data. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAccount();
+              Alert.alert('Account Deleted', 'Your account has been permanently deleted.');
+            } catch (error) {
+              Alert.alert('Error', (error as Error).message || 'Failed to delete account. Please try again.');
+            }
+          }
+        },
+      ]
+    );
+  };
+
   useEffect(() => {
     locationVM.fetchCurrentLocation();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      taskVM.reload();
+      calendarVM.reload();
+    }, [calendarVM.reload, taskVM.reload]),
+  );
 
   const [refreshing, setRefreshing] = React.useState(false);
   const onRefresh = async () => {
@@ -50,10 +88,18 @@ export default function DashboardScreen() {
     setRefreshing(false);
   };
 
-  const today = new Date().toISOString().split('T')[0];
-  const todayEvents = calendarVM.events.filter(e => e.date === today)
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-  const upcomingTasks = taskVM.pendingTasks.slice(0, 3);
+  const today = todayString();
+  const upcomingEvents = calendarVM.events
+    .filter(e => e.date >= today)
+    .sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`));
+  const activeTasks = taskVM.tasks
+    .filter(task => !task.isCompleted)
+    .sort((a, b) => {
+      const aDue = `${a.dueDate ?? '9999-12-31'} ${a.dueTime ?? '23:59'}`;
+      const bDue = `${b.dueDate ?? '9999-12-31'} ${b.dueTime ?? '23:59'}`;
+      return aDue.localeCompare(bDue);
+    })
+    .slice(0, 3);
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -82,10 +128,29 @@ export default function DashboardScreen() {
           <Text style={styles.greeting}>{greeting()},</Text>
           <Text style={styles.username}>{user?.displayName ?? 'Planner'} 👋</Text>
         </View>
-        <TouchableOpacity onPress={logout} style={styles.logoutBtn} accessibilityLabel="Logout">
-          <Text style={styles.logoutIcon}>🚪</Text>
+        <TouchableOpacity 
+          onPress={() => setShowSettings(true)} 
+          style={styles.settingsBtn} 
+          accessibilityLabel="Settings"
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Settings Dropdown */}
+      {showSettings && (
+        <View style={styles.settingsDropdown}>
+          <TouchableOpacity style={styles.settingsOption} onPress={handleLogout}>
+            <Text style={styles.settingsOptionText}>🚪 Logout</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.settingsOption} onPress={handleDeleteAccount}>
+            <Text style={[styles.settingsOptionText, styles.deleteText]}>🗑️ Delete Account</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.settingsCancel} onPress={() => setShowSettings(false)}>
+            <Text style={styles.settingsCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView
         style={styles.scroll}
@@ -112,22 +177,22 @@ export default function DashboardScreen() {
           <Text style={styles.testNotificationText}>Test Notification</Text>
         </TouchableOpacity>
 
-        {/* Today's events */}
-        <SectionHeader title={`Today's Events (${todayEvents.length})`} />
-        {todayEvents.length === 0 ? (
-          <EmptyState icon="📅" message="No events scheduled for today" />
+        {/* Upcoming events */}
+        <SectionHeader title={`Upcoming Events (${upcomingEvents.length})`} />
+        {upcomingEvents.length === 0 ? (
+          <EmptyState icon="📅" message="No upcoming events" />
         ) : (
-          todayEvents.map(event => (
-            <EventCard key={event.id} event={event} onEdit={openEditEvent} />
+          upcomingEvents.slice(0, 3).map(event => (
+            <EventCard key={event.id} event={event} onEdit={openEditEvent} onDelete={calendarVM.deleteEvent} />
           ))
         )}
 
         {/* Upcoming tasks */}
-        <SectionHeader title="Upcoming Tasks" />
-        {upcomingTasks.length === 0 ? (
+        <SectionHeader title="Active Tasks" />
+        {activeTasks.length === 0 ? (
           <EmptyState icon="🎉" message="You're all caught up!" />
         ) : (
-          upcomingTasks.map(task => (
+          activeTasks.map(task => (
             <TaskCard
               key={task.id}
               task={task}
@@ -203,12 +268,33 @@ const styles = StyleSheet.create({
   },
   greeting: { fontSize: Typography.fontSize.base, color: Colors.textSecondary },
   username: { fontSize: Typography.fontSize.xl, fontWeight: '800', color: Colors.textPrimary },
-  logoutBtn: {
+  settingsBtn: {
     backgroundColor: Colors.surfaceElevated, borderRadius: BorderRadius.full,
     width: 40, height: 40, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: Colors.border,
   },
-  logoutIcon: { fontSize: 18 },
+  settingsIcon: { fontSize: 18 },
+  settingsDropdown: {
+    position: 'absolute', top: 70, right: Spacing.base, backgroundColor: Colors.card,
+    borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border,
+    padding: Spacing.xs, zIndex: 100, elevation: 10,
+    minWidth: 150,
+  },
+  settingsOption: {
+    padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  settingsOptionText: {
+    fontSize: Typography.fontSize.base, color: Colors.textPrimary,
+  },
+  deleteText: {
+    color: Colors.error,
+  },
+  settingsCancel: {
+    padding: Spacing.md, alignItems: 'center',
+  },
+  settingsCancelText: {
+    fontSize: Typography.fontSize.base, color: Colors.primary, fontWeight: '600',
+  },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: Spacing.base, paddingBottom: Spacing.xl },
   statsRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },

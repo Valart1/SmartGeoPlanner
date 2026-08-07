@@ -19,6 +19,7 @@ import {
   scheduleEventReminder,
   cancelNotification,
 } from '../services/notificationService';
+import { todayString, toLocalDateString } from '../utils/dateUtils';
 
 export interface CalendarViewModel {
   events: CalendarEvent[];
@@ -35,10 +36,6 @@ export interface CalendarViewModel {
   getEventById: (id: string) => CalendarEvent | undefined;
   clearError: () => void;
   reload: () => Promise<void>;
-}
-
-function todayString(): string {
-  return new Date().toISOString().split('T')[0];
 }
 
 /**
@@ -68,6 +65,39 @@ function isTimeInPast(date: string, time: string): boolean {
   return isPastTime(time);
 }
 
+function normalizeDate(value: unknown): string {
+  const normalized = toLocalDateString(value as Date | string | null | undefined);
+  return normalized ?? String(value ?? '').split('T')[0];
+}
+
+function normalizeEvent(event: CalendarEvent): CalendarEvent {
+  return {
+    ...event,
+    date: normalizeDate(event.date),
+  };
+}
+
+function hasEventEnded(event: CalendarEvent): boolean {
+  const today = todayString();
+  if (event.date < today) return true;
+  if (event.date > today || event.isAllDay) return false;
+  return isPastTime(event.endTime);
+}
+
+function visibleEventsOnly(events: CalendarEvent[]): CalendarEvent[] {
+  return events.map(normalizeEvent).filter(event => !hasEventEnded(event));
+}
+
+function mergeEvent(events: CalendarEvent[], event: CalendarEvent): CalendarEvent[] {
+  const normalized = normalizeEvent(event);
+  const exists = events.some(item => item.id === normalized.id);
+  const merged = exists
+    ? events.map(item => (item.id === normalized.id ? normalized : item))
+    : [...events, normalized];
+
+  return visibleEventsOnly(merged);
+}
+
 export function useCalendarViewModel(_userId: string): CalendarViewModel {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
@@ -78,11 +108,13 @@ export function useCalendarViewModel(_userId: string): CalendarViewModel {
   const reload = useCallback(async () => {
     try {
       setIsLoading(true);
-      const loadedEvents = await apiGetEvents();
+      const loadedEvents = visibleEventsOnly(await apiGetEvents());
       setAllEvents(loadedEvents);
       setEvents(loadedEvents);
-    } catch {
-      setError('Failed to load events.');
+    } catch (e) {
+      setAllEvents([]);
+      setEvents([]);
+      setError(e instanceof Error ? e.message : 'Failed to load events.');
     } finally {
       setIsLoading(false);
     }
@@ -148,24 +180,31 @@ export function useCalendarViewModel(_userId: string): CalendarViewModel {
         throw new Error('End time must be in the future.');
       }
 
-      let notificationId: string | null = null;
+      const created = normalizeEvent(await apiCreateEvent(payload));
+      let eventWithNotification = created;
+
+      setAllEvents(prev => mergeEvent(prev, eventWithNotification));
+      setEvents(prev => mergeEvent(prev, eventWithNotification));
 
       if (!payload.isAllDay) {
-        notificationId = await scheduleEventReminder(
-          payload.title,
-          payload.date,
-          payload.startTime,
-        );
+        try {
+          const notificationId = await scheduleEventReminder(
+            payload.title,
+            payload.date,
+            payload.startTime,
+          );
+          if (notificationId) {
+            eventWithNotification = { ...eventWithNotification, notificationId };
+            await apiUpdateEvent(created.id, { notificationId });
+            setAllEvents(prev => mergeEvent(prev, eventWithNotification));
+            setEvents(prev => mergeEvent(prev, eventWithNotification));
+          }
+        } catch {
+          // Notification setup should never hide a successfully saved event.
+        }
       }
 
-      const created = await apiCreateEvent({
-        ...payload,
-        notificationId,
-      });
-
-      setAllEvents(prev => [...prev, created]);
-      setEvents(prev => [...prev, created]);
-      return created;
+      return eventWithNotification;
     },
     [],
   );
@@ -232,8 +271,8 @@ export function useCalendarViewModel(_userId: string): CalendarViewModel {
         updatedAt: new Date().toISOString(),
       };
 
-      setAllEvents(prev => prev.map(e => (e.id === id ? updated : e)));
-      setEvents(prev => prev.map(e => (e.id === id ? updated : e)));
+      setAllEvents(prev => visibleEventsOnly(prev.map(e => (e.id === id ? updated : e))));
+      setEvents(prev => visibleEventsOnly(prev.map(e => (e.id === id ? updated : e))));
     },
     [events],
   );

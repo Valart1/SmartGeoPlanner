@@ -8,7 +8,6 @@ import { useState, useCallback } from 'react';
 import { GeoLocation, WeatherData } from '../models/Location';
 import { getCurrentLocation, formatLocationLabel } from '../services/locationService';
 import { fetchWeather } from '../services/weatherService';
-import { getItem, setItem, STORAGE_KEYS } from '../services/storageService';
 
 interface LocationViewModel {
   currentLocation: GeoLocation | null;
@@ -39,20 +38,9 @@ export function useLocationViewModel(): LocationViewModel {
       setIsLoadingWeather(true);
       setWeatherError(null);
       try {
-        const cached = await getItem<WeatherData>(STORAGE_KEYS.WEATHER_CACHE);
-        if (cached) {
-          const age = Date.now() - new Date(cached.fetchedAt).getTime();
-          const isSameLocation = cached.location === formatLocationLabel(location);
-          if (age < 5 * 60 * 1000 && isSameLocation) {
-            setWeather(cached);
-            return;
-          }
-        }
-
         const label = formatLocationLabel(location);
         const data = await fetchWeather(location.latitude, location.longitude, label);
         setWeather(data);
-        await setItem(STORAGE_KEYS.WEATHER_CACHE, data);
       } catch {
         setWeatherError('Unable to fetch weather data.');
       } finally {

@@ -7,7 +7,7 @@
  * notification ownership, not for client-side filtering.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Task, CreateTaskPayload, UpdateTaskPayload } from '../models/Task';
 import {
   getTasks as apiGetTasks,
@@ -19,6 +19,7 @@ import {
   scheduleTaskReminder,
   cancelNotification,
 } from '../services/notificationService';
+import { todayString } from '../utils/dateUtils';
 
 export interface TaskViewModel {
   tasks: Task[];
@@ -36,10 +37,6 @@ export interface TaskViewModel {
   reload: () => Promise<void>;
 }
 
-function todayString(): string {
-  return new Date().toISOString().split('T')[0];
-}
-
 /**
  * Checks if a time string (HH:MM) is in the past for today.
  */
@@ -55,13 +52,30 @@ function isPastTime(time: string): boolean {
  */
 function isOverdue(task: Task): boolean {
   if (!task.dueDate || task.isCompleted) return false;
-  const due = new Date(task.dueDate);
-  due.setHours(23, 59, 59);
-  return due < new Date();
+  // Compare the YYYY-MM-DD strings directly: a due date equal to today is not
+  // overdue (regardless of timezone), and anything earlier than today is.
+  return task.dueDate < todayString();
+}
+
+const COMPLETED_TASK_VISIBLE_MS = 30 * 60 * 1000;
+
+function mergeTask(tasks: Task[], task: Task): Task[] {
+  const exists = tasks.some(item => item.id === task.id);
+  return exists
+    ? tasks.map(item => (item.id === task.id ? task : item))
+    : [task, ...tasks];
+}
+
+function isCompletedTaskExpired(task: Task, nowMs: number): boolean {
+  if (!task.isCompleted) return false;
+  const completedAtMs = new Date(task.updatedAt).getTime();
+  if (Number.isNaN(completedAtMs)) return false;
+  return nowMs - completedAtMs >= COMPLETED_TASK_VISIBLE_MS;
 }
 
 export function useTaskViewModel(_userId: string): TaskViewModel {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,6 +96,11 @@ export function useTaskViewModel(_userId: string): TaskViewModel {
     reload();
   }, [reload]);
 
+  useEffect(() => {
+    const intervalId = setInterval(() => setNowMs(Date.now()), 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, []);
+
   // ── CRUD ────────────────────────────────────────────────────────────────────
 
   const createTask = useCallback(
@@ -96,23 +115,29 @@ export function useTaskViewModel(_userId: string): TaskViewModel {
         throw new Error('Cannot create tasks with a time that has already passed today.');
       }
 
-      let notificationId: string | null = null;
+      const created = await apiCreateTask(payload);
+      let taskWithNotification = created;
+
+      setTasks(prev => mergeTask(prev, taskWithNotification));
 
       if (payload.dueDate && payload.dueTime) {
-        notificationId = await scheduleTaskReminder(
-          payload.title,
-          payload.dueDate,
-          payload.dueTime,
-        );
+        try {
+          const notificationId = await scheduleTaskReminder(
+            payload.title,
+            payload.dueDate,
+            payload.dueTime,
+          );
+          if (notificationId) {
+            taskWithNotification = { ...taskWithNotification, notificationId };
+            await apiUpdateTask(created.id, { notificationId });
+            setTasks(prev => mergeTask(prev, taskWithNotification));
+          }
+        } catch {
+          // Notification setup should never hide a successfully saved task.
+        }
       }
 
-      const created = await apiCreateTask({
-        ...payload,
-        notificationId,
-      });
-
-      setTasks(prev => [created, ...prev]);
-      return created;
+      return taskWithNotification;
     },
     [],
   );
@@ -206,16 +231,21 @@ export function useTaskViewModel(_userId: string): TaskViewModel {
     [tasks],
   );
 
-  const getTaskById = (id: string) => tasks.find(t => t.id === id);
+  const visibleTasks = useMemo(
+    () => tasks.filter(task => !isCompletedTaskExpired(task, nowMs)),
+    [tasks, nowMs],
+  );
+
+  const getTaskById = (id: string) => visibleTasks.find(t => t.id === id);
   const clearError = () => setError(null);
 
   // ── Derived lists ──────────────────────────────────────────────────────────
-  const pendingTasks = tasks.filter(t => !t.isCompleted && !isOverdue(t));
-  const completedTasks = tasks.filter(t => t.isCompleted);
-  const overdueTasks = tasks.filter(t => isOverdue(t));
+  const pendingTasks = visibleTasks.filter(t => !t.isCompleted && !isOverdue(t));
+  const completedTasks = visibleTasks.filter(t => t.isCompleted);
+  const overdueTasks = visibleTasks.filter(t => isOverdue(t));
 
   return {
-    tasks,
+    tasks: visibleTasks,
     isLoading,
     error,
     pendingTasks,

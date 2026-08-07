@@ -3,8 +3,8 @@
  *
  * Tests business logic in isolation using Jest + @testing-library/react-native.
  * All external dependencies (apiService, notifications) are mocked. The viewmodel
- * now persists via the PostgreSQL backend (apiService), so we mock apiService
- * with an in-memory store instead of AsyncStorage.
+ * persists via the PostgreSQL backend (apiService), so we mock apiService
+ * with an in-memory backend store.
  */
 
 import { renderHook, act } from '@testing-library/react-native';
@@ -15,41 +15,39 @@ import { Task, CreateTaskPayload } from '../src/models/Task';
 
 const USER_ID = 'test-user-001';
 
-let taskStore: Map<string, Task>;
-let nextId = 0;
+let mockTaskStore: Map<string, Task>;
+let mockNextId = 0;
 
-function makeId(): string {
-  nextId += 1;
-  return `task-${nextId}`;
+function mockMakeId(): string {
+  mockNextId += 1;
+  return `task-${mockNextId}`;
 }
 
-const apiMock = {
-  getTasks: jest.fn(async (): Promise<Task[]> => Array.from(taskStore.values())),
+jest.mock('../src/services/apiService', () => ({
+  getTasks: jest.fn(async (): Promise<Task[]> => Array.from(mockTaskStore.values())),
   createTask: jest.fn(async (payload: CreateTaskPayload): Promise<Task> => {
     const now = new Date().toISOString();
     const task: Task = {
       ...payload,
-      id: makeId(),
+      id: mockMakeId(),
       userId: USER_ID,
-      notificationId: payload.notificationId ?? null,
+      notificationId: null,
       createdAt: now,
       updatedAt: now,
     };
-    taskStore.set(task.id, task);
+    mockTaskStore.set(task.id, task);
     return task;
   }),
   updateTask: jest.fn(async (id: string, updates: Partial<Task>): Promise<void> => {
-    const existing = taskStore.get(id);
+    const existing = mockTaskStore.get(id);
     if (!existing) return;
     const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-    taskStore.set(id, updated);
+    mockTaskStore.set(id, updated);
   }),
   deleteTask: jest.fn(async (id: string): Promise<void> => {
-    taskStore.delete(id);
+    mockTaskStore.delete(id);
   }),
-};
-
-jest.mock('../src/services/apiService', () => apiMock);
+}));
 
 // Mock notification service so no real OS calls are made during tests
 jest.mock('../src/services/notificationService', () => ({
@@ -81,8 +79,8 @@ const overduePayload: CreateTaskPayload = {
 
 // Reset the in-memory store + mock call history before each test
 beforeEach(() => {
-  taskStore = new Map();
-  nextId = 0;
+  mockTaskStore = new Map();
+  mockNextId = 0;
   jest.clearAllMocks();
 });
 
@@ -120,6 +118,29 @@ describe('useTaskViewModel', () => {
     expect(task.status).toBe('pending');
     expect(task.createdAt).toBeTruthy();
     expect(task.updatedAt).toBeTruthy();
+  });
+
+  it('shows a backend-saved task when notification scheduling fails', async () => {
+    const { scheduleTaskReminder } = require('../src/services/notificationService');
+    scheduleTaskReminder.mockRejectedValueOnce(new Error('Notifications unavailable'));
+
+    const { result } = renderHook(() => useTaskViewModel(USER_ID));
+    await act(async () => {});
+
+    await act(async () => {
+      await result.current.createTask({
+        ...basePayload,
+        title: 'Backend task',
+        dueDate: '2099-01-01',
+        dueTime: '09:00',
+      });
+    });
+
+    expect(result.current.tasks).toHaveLength(1);
+    expect(result.current.tasks[0]).toMatchObject({
+      title: 'Backend task',
+      notificationId: null,
+    });
   });
 
   it('assigns unique IDs when multiple tasks are created', async () => {
@@ -203,11 +224,20 @@ describe('useTaskViewModel', () => {
   // ── Derived lists ───────────────────────────────────────────────────────────
 
   it('overdueTasks correctly identifies past-due incomplete tasks', async () => {
+    const now = new Date().toISOString();
+    mockTaskStore.set('task-overdue', {
+      ...overduePayload,
+      id: 'task-overdue',
+      userId: USER_ID,
+      notificationId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
     const { result } = renderHook(() => useTaskViewModel(USER_ID));
     await act(async () => {});
 
     await act(async () => { await result.current.createTask(basePayload); });    // no due date → pending
-    await act(async () => { await result.current.createTask(overduePayload); }); // past due → overdue
 
     expect(result.current.tasks).toHaveLength(2);
     expect(result.current.pendingTasks).toHaveLength(1);
@@ -231,6 +261,43 @@ describe('useTaskViewModel', () => {
     expect(result.current.completedTasks).toHaveLength(1);
     expect(result.current.pendingTasks).toHaveLength(0);
     expect(result.current.overdueTasks).toHaveLength(0);
+  });
+
+  it('keeps newly completed tasks visible before the 30 minute expiry', async () => {
+    const { result } = renderHook(() => useTaskViewModel(USER_ID));
+    await act(async () => {});
+
+    let taskId: string;
+    await act(async () => {
+      const task = await result.current.createTask(basePayload);
+      taskId = task.id;
+    });
+
+    await act(async () => { await result.current.toggleComplete(taskId!); });
+
+    expect(result.current.tasks).toHaveLength(1);
+    expect(result.current.completedTasks).toHaveLength(1);
+  });
+
+  it('hides completed tasks after 30 minutes', async () => {
+    const oldCompletedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+    mockTaskStore.set('task-completed-old', {
+      ...basePayload,
+      id: 'task-completed-old',
+      userId: USER_ID,
+      notificationId: null,
+      status: 'completed',
+      isCompleted: true,
+      createdAt: oldCompletedAt,
+      updatedAt: oldCompletedAt,
+    });
+
+    const { result } = renderHook(() => useTaskViewModel(USER_ID));
+    await act(async () => {});
+
+    expect(result.current.tasks).toHaveLength(0);
+    expect(result.current.completedTasks).toHaveLength(0);
+    expect(result.current.getTaskById('task-completed-old')).toBeUndefined();
   });
 
   // ── Lookup ──────────────────────────────────────────────────────────────────

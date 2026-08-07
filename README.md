@@ -182,4 +182,5 @@ rm -rf node_modules package-lock.json
 
 ACTIVATE BACKEND
 cd backend
+npm install
 npm run dev

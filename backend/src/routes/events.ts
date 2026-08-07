@@ -12,7 +12,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
       [req.user!.id]
     );
 
-    const events = result.rows.map(row => ({
+const events = result.rows.map((row: any) => ({
       id: row.id,
       userId: row.user_id,
       title: row.title,

@@ -11,18 +11,16 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useFocusEffect } from '@react-navigation/native';
 import { usePlanner } from '../../context/PlannerContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
 import EventCard from '../components/EventCard';
 import LocationPicker from '../components/LocationPicker';
 import { CalendarEvent, CreateEventPayload, EventColor } from '../../models/Event';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
+import { todayString } from '../../utils/dateUtils';
 
 const EVENT_COLORS: EventColor[] = ['#6C63FF', '#FF6584', '#43C6AC', '#F7971E', '#56CCF2'];
-
-function todayString(): string {
-  return new Date().toISOString().split('T')[0];
-}
 
 export default function CalendarScreen() {
   const { calendarVM: vm } = usePlanner();
@@ -42,11 +40,17 @@ export default function CalendarScreen() {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      vm.reload();
+    }, [vm.reload]),
+  );
+
   const openCreateModal = () => {
     setEditingEvent(null);
     setTitle(''); setDescription(''); setColor('#6C63FF');
     setIsAllDay(false);
-    // Set start time to now (or next hour if current time is in the past)
+    // Set start time to next hour
     const now = new Date();
     const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
     setStartTime(oneHourLater);
@@ -61,8 +65,12 @@ export default function CalendarScreen() {
     setDescription(event.description);
     setColor(event.color);
     setIsAllDay(event.isAllDay);
-    setStartTime(new Date(`2000-01-01T${event.startTime}`));
-    setEndTime(new Date(`2000-01-01T${event.endTime}`));
+    // Parse the HH:MM string as a local-time Date so the time picker shows
+    // the same hour the user originally picked (no UTC shift).
+    const [sh, sm] = event.startTime.split(':').map(Number);
+    const [eh, em] = event.endTime.split(':').map(Number);
+    setStartTime(new Date(2000, 0, 1, sh, sm));
+    setEndTime(new Date(2000, 0, 1, eh, em));
     locVM.setSelectedMapLocation(event.location);
     setShowLocationPicker(!!event.location);
     setModalVisible(true);
@@ -151,6 +159,13 @@ export default function CalendarScreen() {
 
           {vm.isLoading ? (
             <ActivityIndicator color={Colors.primary} style={{ marginTop: Spacing.xl }} />
+          ) : vm.error ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>{vm.error}</Text>
+              <TouchableOpacity style={styles.emptyAddBtn} onPress={vm.reload}>
+                <Text style={styles.emptyAddText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
           ) : vm.eventsForSelectedDate.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyIcon}>📅</Text>
@@ -161,7 +176,7 @@ export default function CalendarScreen() {
             </View>
           ) : (
             vm.eventsForSelectedDate.map(event => (
-              <EventCard key={event.id} event={event} onEdit={openEditModal} onDelete={handleDeleteEvent} />
+              <EventCard key={event.id} event={event} onEdit={openEditModal} onDelete={vm.deleteEvent} />
             ))
           )}
         </View>

@@ -16,6 +16,7 @@ import TaskCard from '../components/TaskCard';
 import LocationPicker from '../components/LocationPicker';
 import { Task, CreateTaskPayload, TaskPriority } from '../../models/Task';
 import { Colors, Spacing, BorderRadius, Typography } from '../../theme/theme';
+import { todayString, toLocalDateString } from '../../utils/dateUtils';
 
 type FilterType = 'all' | 'pending' | 'completed' | 'overdue';
 
@@ -56,7 +57,15 @@ export default function TaskListScreen() {
   const openEditModal = (task: Task) => {
     setEditingTask(task);
     setTitle(task.title); setDescription(task.description); setPriority(task.priority);
-    setDueDate(task.dueDate ? new Date(task.dueDate) : null);
+    // Parse YYYY-MM-DD as a local-time Date (midnight) so the date picker
+    // opens on the correct calendar day regardless of timezone.
+    if (task.dueDate) {
+      const [y, m, d] = task.dueDate.split('-').map(Number);
+      const [hh, mm] = (task.dueTime ?? '09:00').split(':').map(Number);
+      setDueDate(new Date(y, m - 1, d, hh, mm));
+    } else {
+      setDueDate(null);
+    }
     locVM.setSelectedMapLocation(task.location);
     setShowLocationPicker(!!task.location);
     setModalVisible(true);
@@ -65,7 +74,7 @@ export default function TaskListScreen() {
   const handleSave = async () => {
     if (!title.trim()) { Alert.alert('Error', 'Title is required'); return; }
     try {
-      const dueDateStr = dueDate ? dueDate.toISOString().split('T')[0] : null;
+      const dueDateStr = dueDate ? toLocalDateString(dueDate) : null;
       const dueTimeStr = dueDate
         ? `${dueDate.getHours().toString().padStart(2, '0')}:${dueDate.getMinutes().toString().padStart(2, '0')}`
         : null;
@@ -232,8 +241,8 @@ export default function TaskListScreen() {
                 onChange={(_, date) => {
                   setShowTimePicker(false);
                   if (date) {
-                    const today = new Date().toISOString().split('T')[0];
-                    const selectedDate = dueDate ? dueDate.toISOString().split('T')[0] : today;
+                    const today = todayString();
+                    const selectedDate = dueDate ? toLocalDateString(dueDate) ?? today : today;
                     // If selecting time for today, check if it's in the past
                     if (selectedDate === today) {
                       const [hours, minutes] = [date.getHours(), date.getMinutes()];

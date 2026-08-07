@@ -1,19 +1,19 @@
 import { SignupPayload, User } from '../models/User';
-import { login as apiLogin, register as apiRegister } from './apiService';
+import {
+  login as apiLogin,
+  register as apiRegister,
+  requestPasswordReset,
+} from './apiService';
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
-/**
- * Register a new account against the PostgreSQL backend.
- * The token returned by the API is persisted to AsyncStorage by apiService.register.
- */
 export async function registerAccount(payload: SignupPayload): Promise<User> {
   const emailKey = normalize(payload.email);
-  const usernameKey = normalize(payload.username);
+  const username = payload.username.trim();
 
-  if (!emailKey || !usernameKey || !payload.password) {
+  if (!emailKey || !username || !payload.password) {
     throw new Error('Username, email, and password are required.');
   }
 
@@ -29,15 +29,10 @@ export async function registerAccount(payload: SignupPayload): Promise<User> {
     throw new Error('Password must be at least 6 characters.');
   }
 
-  // Let apiRegister throw with the server's error message (e.g. duplicate email/username).
-  const result = await apiRegister(emailKey, payload.username.trim(), payload.password);
+  const result = await apiRegister(emailKey, username, payload.password);
   return result.user;
 }
 
-/**
- * Authenticate against the PostgreSQL backend.
- * The token returned by the API is persisted to AsyncStorage by apiService.login.
- */
 export async function authenticateAccount(
   identifier: string,
   password: string,
@@ -49,4 +44,12 @@ export async function authenticateAccount(
 
   const result = await apiLogin(identifierKey, password);
   return result.user;
+}
+
+export async function accountExists(identifier: string): Promise<boolean> {
+  const identifierKey = normalize(identifier);
+  if (!identifierKey) return false;
+
+  const result = await requestPasswordReset(identifierKey);
+  return result.exists;
 }

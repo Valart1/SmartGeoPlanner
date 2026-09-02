@@ -26,9 +26,9 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const taskVM = useTaskViewModel(userId);
   const calendarVM = useCalendarViewModel(userId);
 
-  // NOTE: The previous cross-user "notify about unseen events from other users"
-  // effect was a local-storage artifact — the backend scopes events to the
-  // authenticated user, so there are no other-user events to announce. Removed.
+  // NOTE: Events are shared across users (backend GET /api/events returns
+  // every user's events). useCalendarViewModel announces newly created events
+  // from other users via local notifications while the app is open.
 
   return (
     <PlannerContext.Provider value={{ taskVM, calendarVM }}>

@@ -4,15 +4,17 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-// Get all events for user
+// Get all events (shared calendar: every user sees every event)
 router.get('/', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM events WHERE user_id = $1 ORDER BY date ASC, start_time ASC',
-      [req.user!.id]
+      `SELECT e.*, u.username AS creator_username, u.email AS creator_email
+       FROM events e
+       JOIN users u ON e.user_id = u.id
+       ORDER BY e.date ASC, e.start_time ASC`
     );
 
-const events = result.rows.map((row: any) => ({
+    const events = result.rows.map((row: any) => ({
       id: row.id,
       userId: row.user_id,
       title: row.title,
@@ -26,6 +28,8 @@ const events = result.rows.map((row: any) => ({
       isAllDay: row.is_all_day,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      creatorUsername: row.creator_username,
+      creatorEmail: row.creator_email,
     }));
 
     res.json({ events });
@@ -163,14 +167,33 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-// Delete event
+// Delete event. The creator can always delete; admins may delete any event.
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
   const { id } = req.params;
 
   try {
+    const existing = await pool.query(
+      'SELECT user_id FROM events WHERE id = $1',
+      [id]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    if (existing.rows[0].user_id !== req.user!.id) {
+      const adminCheck = await pool.query(
+        'SELECT is_admin FROM users WHERE id = $1',
+        [req.user!.id]
+      );
+      if (adminCheck.rows.length === 0 || !adminCheck.rows[0].is_admin) {
+        return res.status(403).json({ error: 'You can only delete events you created' });
+      }
+    }
+
     const result = await pool.query(
-      'DELETE FROM events WHERE id = $1 AND user_id = $2 RETURNING id',
-      [id, req.user!.id]
+      'DELETE FROM events WHERE id = $1 RETURNING id',
+      [id]
     );
 
     if (result.rowCount === 0) {

@@ -130,14 +130,18 @@ export async function scheduleTestNotification(): Promise<string | null> {
   );
 }
 
+/**
+ * Announces a newly created shared event from another user.
+ * Fires a local notification ~10 s after scheduling.
+ */
 export async function scheduleNewEventNotification(
   eventTitle: string,
-  eventDate: string,
-  eventTime: string,
+  whenLabel: string,
+  creatorName: string,
 ): Promise<string | null> {
   return scheduleNotification(
-    'New Event Added',
-    `${eventTitle} is scheduled for ${eventDate}${eventTime ? ` at ${eventTime}` : ''}.`,
+    `New Event from ${creatorName}`,
+    `"${eventTitle}" is scheduled for ${whenLabel}.`,
     new Date(Date.now() + MINIMUM_DELAY_MS),
   );
 }

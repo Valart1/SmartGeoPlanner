@@ -13,6 +13,7 @@ import { Calendar } from 'react-native-calendars';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from '@react-navigation/native';
 import { usePlanner } from '../../context/PlannerContext';
+import { useAuth } from '../../context/AuthContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
 import EventCard from '../components/EventCard';
 import LocationPicker from '../components/LocationPicker';
@@ -24,6 +25,7 @@ const EVENT_COLORS: EventColor[] = ['#6C63FF', '#FF6584', '#43C6AC', '#F7971E', 
 
 export default function CalendarScreen() {
   const { calendarVM: vm } = usePlanner();
+  const { user } = useAuth();
   const locVM = useLocationViewModel();
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -176,7 +178,14 @@ export default function CalendarScreen() {
             </View>
           ) : (
             vm.eventsForSelectedDate.map(event => (
-              <EventCard key={event.id} event={event} onEdit={openEditModal} onDelete={vm.deleteEvent} />
+              <EventCard
+                key={event.id}
+                event={event}
+                onEdit={openEditModal}
+                onDelete={vm.deleteEvent}
+                canManage={event.userId === user?.id || !!user?.isAdmin}
+                showCreator={event.userId !== user?.id}
+              />
             ))
           )}
         </View>

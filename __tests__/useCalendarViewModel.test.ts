@@ -40,6 +40,7 @@ jest.mock('../src/services/apiService', () => ({
 jest.mock('../src/services/notificationService', () => ({
   scheduleEventReminder: jest.fn().mockResolvedValue('mock-event-notification-id'),
   cancelNotification: jest.fn().mockResolvedValue(undefined),
+  scheduleNewEventNotification: jest.fn().mockResolvedValue('mock-shared-event-notification-id'),
 }));
 
 function daysFromNow(days: number): string {

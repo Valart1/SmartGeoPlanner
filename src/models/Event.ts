@@ -26,6 +26,10 @@ export interface CalendarEvent {
   isAllDay: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Username of the account that created the event (shared calendar). */
+  creatorUsername?: string;
+  /** Email of the creator (shared calendar). */
+  creatorEmail?: string;
 }
 
 export type CreateEventPayload = Omit<

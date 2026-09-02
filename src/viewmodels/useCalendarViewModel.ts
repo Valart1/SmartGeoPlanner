@@ -2,12 +2,14 @@
  * useCalendarViewModel
  * MVVM ViewModel for the Event Calendar module.
  * Manages calendar events: CRUD, date selection, markedDates, and notifications.
- * Data is persisted via the PostgreSQL backend (apiService); the backend scopes
- * events to the authenticated user via the JWT, so userId is used only for
- * notification ownership, not for client-side filtering.
+ * Events are SHARED across users — the backend returns every user's events, so
+ * the calendar, map, and dashboard show everyone's events. While the app is
+ * open, the viewmodel polls for newly created events from other users and
+ * announces them with a local notification.
+ * Data is persisted via the PostgreSQL backend (apiService).
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CalendarEvent, CreateEventPayload, UpdateEventPayload, MarkedDates } from '../models/Event';
 import {
   getEvents as apiGetEvents,
@@ -18,6 +20,7 @@ import {
 import {
   scheduleEventReminder,
   cancelNotification,
+  scheduleNewEventNotification,
 } from '../services/notificationService';
 import { todayString, toLocalDateString } from '../utils/dateUtils';
 
@@ -98,31 +101,86 @@ function mergeEvent(events: CalendarEvent[], event: CalendarEvent): CalendarEven
   return visibleEventsOnly(merged);
 }
 
-export function useCalendarViewModel(_userId: string): CalendarViewModel {
+export function useCalendarViewModel(userId: string): CalendarViewModel {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(todayString());
 
-  const reload = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const loadedEvents = visibleEventsOnly(await apiGetEvents());
-      setAllEvents(loadedEvents);
-      setEvents(loadedEvents);
-    } catch (e) {
-      setAllEvents([]);
-      setEvents([]);
-      setError(e instanceof Error ? e.message : 'Failed to load events.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  // Shared-calendar notifications: remember which event ids this device has
+  // already seen so a newly discovered event from ANOTHER user can trigger a
+  // local notification. null = initial sync: adopt everything silently so
+  // users are not spammed about pre-existing events on app start.
+  const seenEventIdsRef = useRef<Set<string> | null>(null);
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
+  const ingestLoadedEvents = useCallback(
+    (loaded: CalendarEvent[]): CalendarEvent[] => {
+      const seen = seenEventIdsRef.current;
+      if (seen === null) {
+        seenEventIdsRef.current = new Set(loaded.map(event => event.id));
+        return loaded;
+      }
+
+      const nextSeen = new Set(seen);
+      for (const event of loaded) {
+        if (nextSeen.has(event.id)) continue;
+        nextSeen.add(event.id);
+        if (event.userId === userIdRef.current) continue; // own event — never self-announce
+        try {
+          scheduleNewEventNotification(
+            event.title,
+            event.isAllDay ? event.date : `${event.date} at ${event.startTime}`,
+            event.creatorUsername ?? 'another user',
+          ).catch(() => {
+            // Notification failures must never break event loading.
+          });
+        } catch {
+          // Keep loading even if the notification module misbehaves.
+        }
+      }
+      seenEventIdsRef.current = nextSeen;
+      return loaded;
+    },
+    [],
+  );
+
+  const fetchEvents = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      const { silent = false } = options;
+      try {
+        if (!silent) setIsLoading(true);
+        const loadedEvents = ingestLoadedEvents(visibleEventsOnly(await apiGetEvents()));
+        setAllEvents(loadedEvents);
+        setEvents(loadedEvents);
+        setError(null);
+      } catch (e) {
+        if (silent) return; // keep current data when a background poll fails
+        setAllEvents([]);
+        setEvents([]);
+        setError(e instanceof Error ? e.message : 'Failed to load events.');
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [ingestLoadedEvents],
+  );
+
+  const reload = useCallback(() => fetchEvents(), [fetchEvents]);
 
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Poll for events created by other users while the app is open.
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      fetchEvents({ silent: true });
+    }, 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [fetchEvents]);
 
   // ── MarkedDates computed for react-native-calendars ────────────────────────
   const markedDates: MarkedDates = useMemo(() => {
@@ -181,6 +239,7 @@ export function useCalendarViewModel(_userId: string): CalendarViewModel {
       }
 
       const created = normalizeEvent(await apiCreateEvent(payload));
+      seenEventIdsRef.current?.add(created.id);
       let eventWithNotification = created;
 
       setAllEvents(prev => mergeEvent(prev, eventWithNotification));

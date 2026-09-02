@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, MapType } from 'react-native-maps';
 import { usePlanner } from '../../context/PlannerContext';
 import { useLocationViewModel } from '../../viewmodels/useLocationViewModel';
 import WeatherWidget from '../components/WeatherWidget';
@@ -48,11 +48,24 @@ function eventMarkerDescription(event: {
     .join(' | ');
 }
 
+/**
+ * Map layer options for the layer switcher.
+ * `value` matches react-native-maps' MapType mapType prop.
+ */
+const MAP_LAYERS: { label: string; icon: string; value: MapType }[] = [
+  { label: 'Standard', icon: '🗺️', value: 'standard' },
+  { label: 'Satellite', icon: '🛰️', value: 'satellite' },
+  { label: 'Hybrid', icon: '🌍', value: 'hybrid' },
+  { label: 'Terrain', icon: '⛰️', value: 'terrain' },
+];
+
 export default function MapScreen() {
   const locVM = useLocationViewModel();
   const { taskVM, calendarVM } = usePlanner();
   const mapRef = useRef<MapView>(null);
   const [showWeather, setShowWeather] = useState(false);
+  const [mapType, setMapType] = useState<MapType>('standard');
+  const [showLayerMenu, setShowLayerMenu] = useState(false);
 
   useEffect(() => {
     locVM.fetchCurrentLocation();
@@ -93,6 +106,13 @@ export default function MapScreen() {
         longitudeDelta: 0.3,
       };
 
+  const activeLayer = MAP_LAYERS.find(layer => layer.value === mapType) ?? MAP_LAYERS[0];
+
+  const selectLayer = (value: MapType) => {
+    setMapType(value);
+    setShowLayerMenu(false);
+  };
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -107,6 +127,7 @@ export default function MapScreen() {
           ref={mapRef}
           style={styles.map}
           provider={PROVIDER_DEFAULT}
+          mapType={mapType}
           initialRegion={initialRegion}
           showsUserLocation
           showsMyLocationButton={false}
@@ -144,6 +165,13 @@ export default function MapScreen() {
         <Text style={styles.screenTitle}>Map</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
+            style={[styles.floatingBtn, showLayerMenu && styles.floatingBtnActive]}
+            onPress={() => setShowLayerMenu(value => !value)}
+            accessibilityLabel="Change map layer"
+          >
+            <Text style={styles.floatingBtnText}>{activeLayer.icon}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.floatingBtn, showWeather && styles.floatingBtnActive]}
             onPress={() => setShowWeather(value => !value)}
             accessibilityLabel="Toggle weather panel"
@@ -159,6 +187,28 @@ export default function MapScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {showLayerMenu && (
+        <View style={styles.layerMenu}>
+          {MAP_LAYERS.map(layer => {
+            const isActive = layer.value === mapType;
+            return (
+              <TouchableOpacity
+                key={layer.value}
+                style={[styles.layerOption, isActive && styles.layerOptionActive]}
+                onPress={() => selectLayer(layer.value)}
+                accessibilityLabel={`Select ${layer.label} map layer`}
+              >
+                <Text style={styles.layerOptionEmoji}>{layer.icon}</Text>
+                <Text style={[styles.layerOptionText, isActive && styles.layerOptionTextActive]}>
+                  {layer.label}
+                </Text>
+                {isActive && <Text style={styles.layerOptionCheck}>✓</Text>}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
       {showWeather && (
         <View style={styles.weatherPanel}>
@@ -243,6 +293,48 @@ const styles = StyleSheet.create({
   floatingBtnText: {
     color: Colors.textPrimary,
     fontSize: Typography.fontSize.sm,
+    fontWeight: '700',
+  },
+  layerMenu: {
+    position: 'absolute',
+    top: 96,
+    right: Spacing.base,
+    backgroundColor: `${Colors.card}F2`,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.xs,
+    zIndex: 100,
+    elevation: 10,
+    minWidth: 180,
+  },
+  layerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+  },
+  layerOptionActive: {
+    backgroundColor: `${Colors.primary}22`,
+  },
+  layerOptionEmoji: {
+    fontSize: 16,
+  },
+  layerOptionText: {
+    flex: 1,
+    color: Colors.textSecondary,
+    fontSize: Typography.fontSize.base,
+    fontWeight: '500',
+  },
+  layerOptionTextActive: {
+    color: Colors.primary,
+    fontWeight: '700',
+  },
+  layerOptionCheck: {
+    color: Colors.primary,
+    fontSize: Typography.fontSize.base,
     fontWeight: '700',
   },
   weatherPanel: {

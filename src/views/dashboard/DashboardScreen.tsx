@@ -183,7 +183,14 @@ export default function DashboardScreen() {
           <EmptyState icon="📅" message="No upcoming events" />
         ) : (
           upcomingEvents.slice(0, 3).map(event => (
-            <EventCard key={event.id} event={event} onEdit={openEditEvent} onDelete={calendarVM.deleteEvent} />
+            <EventCard
+              key={event.id}
+              event={event}
+              onEdit={openEditEvent}
+              onDelete={calendarVM.deleteEvent}
+              canManage={event.userId === user?.id || !!user?.isAdmin}
+              showCreator={event.userId !== user?.id}
+            />
           ))
         )}
 

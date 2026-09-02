@@ -13,9 +13,20 @@ interface EventCardProps {
   onPress?: (event: CalendarEvent) => void;
   onEdit?: (event: CalendarEvent) => void;
   onDelete?: (id: string) => void;
+  /** Whether the current user may edit/delete this event (creator or admin). Defaults to true. */
+  canManage?: boolean;
+  /** Show a "created by" chip (used for events created by other users). */
+  showCreator?: boolean;
 }
 
-export default function EventCard({ event, onPress, onEdit, onDelete }: EventCardProps) {
+export default function EventCard({
+  event,
+  onPress,
+  onEdit,
+  onDelete,
+  canManage = true,
+  showCreator = false,
+}: EventCardProps) {
   return (
     <View style={styles.card}>
       {/* Left accent bar in event color */}
@@ -26,24 +37,24 @@ export default function EventCard({ event, onPress, onEdit, onDelete }: EventCar
           <TouchableOpacity onPress={() => onPress?.(event)} activeOpacity={0.8} style={styles.titleTouchable}>
             <Text style={styles.title} numberOfLines={1}>{event.title}</Text>
           </TouchableOpacity>
-          {onEdit && (
+          {onEdit && canManage && (
             <TouchableOpacity
               onPress={() => onEdit(event)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityLabel={`Edit event ${event.title}`}
               style={styles.actionBtn}
             >
-              <Text style={styles.editIcon}>✏️</Text>
+              <Text style={styles.actionIcon}>✏️</Text>
             </TouchableOpacity>
           )}
-          {onDelete && (
+          {onDelete && canManage && (
             <TouchableOpacity
               onPress={() => onDelete(event.id)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityLabel={`Delete event ${event.title}`}
               style={styles.actionBtn}
             >
-              <Text style={styles.deleteIcon}>✕</Text>
+              <Text style={styles.actionIcon}>🗑️</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -71,6 +82,14 @@ export default function EventCard({ event, onPress, onEdit, onDelete }: EventCar
             <View style={styles.locationChip}>
               <Text style={styles.locationText}>
                 📍 {event.location.city ?? 'Location set'}
+              </Text>
+            </View>
+          )}
+
+          {showCreator && !!event.creatorUsername && (
+            <View style={styles.creatorChip}>
+              <Text style={styles.creatorText}>
+                👤 {event.creatorUsername}
               </Text>
             </View>
           )}
@@ -114,13 +133,8 @@ const styles = StyleSheet.create({
   actionBtn: {
     padding: 4,
   },
-  editIcon: {
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  deleteIcon: {
-    fontSize: 14,
-    color: Colors.textMuted,
+  actionIcon: {
+    fontSize: 16,
   },
   description: {
     fontSize: Typography.fontSize.sm,
@@ -149,6 +163,16 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   locationText: {
+    fontSize: Typography.fontSize.xs,
+    color: Colors.textSecondary,
+  },
+  creatorChip: {
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  creatorText: {
     fontSize: Typography.fontSize.xs,
     color: Colors.textSecondary,
   },

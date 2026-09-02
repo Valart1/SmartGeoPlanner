@@ -12,7 +12,7 @@ import { toLocalDateString } from '../utils/dateUtils';
 // backend first for Expo Go on a phone, then localhost for web/emulators.
 const API_BASE_URLS = [
   process.env.EXPO_PUBLIC_API_URL,
-  'http://192.168.1.64:3000/api',
+  'http://192.168.1.90:3000/api',
   'http://localhost:3000/api',
 ].filter(Boolean) as string[];
 const API_REQUEST_TIMEOUT_MS = 5000;

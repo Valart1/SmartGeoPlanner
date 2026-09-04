@@ -3,13 +3,31 @@ import {
   login as apiLogin,
   register as apiRegister,
   requestPasswordReset,
+  resendVerification,
 } from './apiService';
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export async function registerAccount(payload: SignupPayload): Promise<User> {
+/** Thrown when login/register hits a gate because the email isn't verified yet. */
+export class EmailNotVerifiedError extends Error {
+  email: string;
+  constructor(email: string) {
+    super('Please verify your email before signing in.');
+    this.name = 'EmailNotVerifiedError';
+    this.email = email;
+  }
+}
+
+export interface RegisterResult {
+  user: User;
+  requiresEmailVerification: boolean;
+  /** Present only in dev mode (no SMTP configured) for testing. */
+  devVerifyUrl?: string;
+}
+
+export async function registerAccount(payload: SignupPayload): Promise<RegisterResult> {
   const emailKey = normalize(payload.email);
   const username = payload.username.trim();
 
@@ -30,7 +48,11 @@ export async function registerAccount(payload: SignupPayload): Promise<User> {
   }
 
   const result = await apiRegister(emailKey, username, payload.password);
-  return result.user;
+  return {
+    user: result.user,
+    requiresEmailVerification: result.requiresEmailVerification ?? false,
+    devVerifyUrl: result.devVerifyUrl,
+  };
 }
 
 export async function authenticateAccount(
@@ -42,8 +64,26 @@ export async function authenticateAccount(
     throw new Error('Email/username and password are required.');
   }
 
-  const result = await apiLogin(identifierKey, password);
-  return result.user;
+  try {
+    const result = await apiLogin(identifierKey, password);
+    return result.user;
+  } catch (error) {
+    const apiError = error as { needsVerification?: boolean; email?: string };
+    if (apiError.needsVerification) {
+      throw new EmailNotVerifiedError(apiError.email || identifierKey);
+    }
+    throw error;
+  }
+}
+
+export async function resendVerificationEmail(
+  email: string,
+): Promise<{ message: string; devVerifyUrl?: string }> {
+  const emailKey = normalize(email);
+  if (!emailKey) {
+    throw new Error('Email is required.');
+  }
+  return resendVerification(emailKey);
 }
 
 export async function accountExists(identifier: string): Promise<boolean> {

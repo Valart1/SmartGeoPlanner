@@ -18,6 +18,8 @@ async function migrate() {
       display_name VARCHAR(255),
       password_hash VARCHAR(255) NOT NULL,
       is_email_verified BOOLEAN DEFAULT FALSE,
+      verification_code_hash VARCHAR(64),
+      verification_expires_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );

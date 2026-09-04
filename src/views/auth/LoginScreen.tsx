@@ -31,7 +31,10 @@ export default function LoginScreen({ navigation }: Props) {
 
   const handleLogin = async () => {
     clearError();
-    await login(email.trim(), password);
+    const result = await login(email.trim(), password);
+    if (result === 'unverified') {
+      navigation.navigate('EmailVerification');
+    }
   };
 
   return (

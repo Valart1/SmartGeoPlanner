@@ -1,43 +1,126 @@
 /**
  * Notification Service
  * Configures and schedules local notifications using expo-notifications.
+ *
+ * IMPORTANT: expo-notifications' native module is unavailable inside Android
+ * Expo Go (remote push was removed from Expo Go in SDK 53). Importing the
+ * package eagerly makes the whole app crash with "[runtime not ready]" because
+ * one of its submodules touches the missing native module at import time.
+ * We therefore lazy-require the package and no-op safely when unsupported.
  */
 
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import type { Notification, NotificationResponse } from 'expo-notifications';
+
+// Type-only alias so importing this module never eagerly loads expo-notifications.
+type NotificationsModule = typeof import('expo-notifications');
 
 const REMINDER_CHANNEL_ID = 'reminders';
 const MINIMUM_DELAY_MS = 10 * 1000;
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+// Metro provides require(); TypeScript doesn't always declare it.
+declare const require: (path: string) => any;
 
-async function ensureNotificationChannel(): Promise<void> {
-  if (Platform.OS !== 'android') return;
+/**
+ * True when notifications cannot work at all in the current environment.
+ * Android Expo Go removed the notifications native module (push + local) in
+ * SDK 53. Development builds, production builds, and iOS Expo Go still work.
+ */
+function isNotificationsUnsupported(): boolean {
+  return Platform.OS === 'android' && Constants.executionEnvironment === 'storeClient';
+}
 
-  await Notifications.setNotificationChannelAsync(REMINDER_CHANNEL_ID, {
+let cachedModule: NotificationsModule | null = null;
+let loadAttempted = false;
+// The Expo push token currently registered for this device (if any).
+let currentPushToken: string | null = null;
+
+/** Lazily load expo-notifications; returns null when unsupported/unavailable. */
+function getNotifications(): NotificationsModule | null {
+  if (isNotificationsUnsupported()) return null;
+  if (loadAttempted) return cachedModule;
+  loadAttempted = true;
+  try {
+    cachedModule = require('expo-notifications') as NotificationsModule;
+  } catch (error) {
+    console.warn('[notifications] expo-notifications failed to load:', error);
+    cachedModule = null;
+  }
+  return cachedModule;
+}
+
+let handlerRegistered = false;
+// True only when this device has a live Expo push token. When remote push is
+// available, the backend announces shared events for us, so we must NOT also
+// fire a local "new event" notification (or users get two).
+let pushRegistered = false;
+
+/** Register the foreground notification handler once, only when supported. */
+function ensureHandlerRegistered(n: NotificationsModule): void {
+  if (handlerRegistered) return;
+  handlerRegistered = true;
+  n.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
+
+async function ensureNotificationChannel(): Promise<boolean> {
+  const n = getNotifications();
+  if (!n) return false;
+  if (Platform.OS !== 'android') return true;
+
+  await n.setNotificationChannelAsync(REMINDER_CHANNEL_ID, {
     name: 'Reminders',
-    importance: Notifications.AndroidImportance.HIGH,
+    importance: n.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#6C63FF',
     sound: 'default',
   });
+  return true;
+}
+
+/** False when running where notifications are unavailable (Android Expo Go). */
+export function areNotificationsSupported(): boolean {
+  return getNotifications() !== null;
+}
+
+/**
+ * Register foreground-received and tap listeners.
+ * Returns an unsubscribe function; no-ops when notifications are unsupported.
+ */
+export function registerNotificationListeners(
+  onReceived?: (notification: Notification) => void,
+  onResponse?: (response: NotificationResponse) => void,
+): () => void {
+  const n = getNotifications();
+  if (!n) return () => {};
+
+  ensureHandlerRegistered(n);
+  const receivedSub = onReceived ? n.addNotificationReceivedListener(onReceived) : null;
+  const responseSub = onResponse ? n.addNotificationResponseReceivedListener(onResponse) : null;
+  return () => {
+    receivedSub?.remove();
+    responseSub?.remove();
+  };
 }
 
 export async function requestNotificationPermissions(): Promise<boolean> {
+  const n = getNotifications();
+  if (!n) return false;
+
   await ensureNotificationChannel();
 
-  const { status: existing } = await Notifications.getPermissionsAsync();
+  const { status: existing } = await n.getPermissionsAsync();
   if (existing === 'granted') return true;
 
-  const { status } = await Notifications.requestPermissionsAsync();
+  const { status } = await n.requestPermissionsAsync();
   return status === 'granted';
 }
 
@@ -46,12 +129,15 @@ export async function scheduleNotification(
   body: string,
   trigger: Date,
 ): Promise<string | null> {
+  const n = getNotifications();
+  if (!n) return null;
+
   const granted = await requestNotificationPermissions();
   if (!granted) return null;
 
   if (trigger.getTime() <= Date.now()) return null;
 
-  return Notifications.scheduleNotificationAsync({
+  return n.scheduleNotificationAsync({
     content: {
       title,
       body,
@@ -59,7 +145,7 @@ export async function scheduleNotification(
       data: { scheduledAt: new Date().toISOString() },
     },
     trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      type: n.SchedulableTriggerInputTypes.DATE,
       date: trigger,
       channelId: REMINDER_CHANNEL_ID,
     },
@@ -67,11 +153,67 @@ export async function scheduleNotification(
 }
 
 export async function cancelNotification(notificationId: string): Promise<void> {
-  await Notifications.cancelScheduledNotificationAsync(notificationId);
+  const n = getNotifications();
+  if (!n) return;
+  await n.cancelScheduledNotificationAsync(notificationId);
 }
 
 export async function cancelAllNotifications(): Promise<void> {
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  const n = getNotifications();
+  if (!n) return;
+  await n.cancelAllScheduledNotificationsAsync();
+}
+
+/**
+ * Register this device for remote push notifications (Expo Push Service).
+ * Returns the push token on success, or null when the platform/build doesn't
+ * support it (e.g. Android Expo Go, which removed push in SDK 53).
+ */
+export async function registerForPushNotifications(): Promise<string | null> {
+  const n = getNotifications();
+  if (!n) return null;
+
+  await ensureNotificationChannel();
+
+  const granted = await requestNotificationPermissions();
+  if (!granted) return null;
+
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? null;
+
+  try {
+    const tokenData = await n.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    pushRegistered = true;
+    currentPushToken = tokenData.data;
+    return tokenData.data;
+  } catch (error) {
+    // Push requires a development/production build on Android — on Expo Go the
+    // native module is absent. Swallow so the rest of the app keeps working.
+    console.warn('[notifications] Unable to obtain a push token:', error);
+    return null;
+  }
+}
+
+/**
+ * Whether this device should announce new shared events via a LOCAL
+ * notification. True only when local notifications work AND remote push is
+ * not registered here (Expo Go fallback). When a push token exists, the
+ * backend does the announcement and the local one is skipped (no duplicates).
+ */
+export function shouldUseLocalEventAnnouncements(): boolean {
+  return areNotificationsSupported() && !pushRegistered;
+}
+
+/** Called on logout: return the current push token so the caller can unregister it. */
+export function getCurrentPushToken(): string | null {
+  return currentPushToken;
+}
+
+/** Called on logout: drop all scheduled local reminders and forget the token. */
+export function clearNotificationSchedules(): void {
+  pushRegistered = false;
+  const n = getNotifications();
+  if (!n) return;
+  n.cancelAllScheduledNotificationsAsync().catch(() => {});
 }
 
 function buildReminderTrigger(target: Date, leadMinutes: number): Date | null {

@@ -79,7 +79,16 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
       });
 
       if (!response.ok) {
-        throw new Error((await response.json()).error || 'API request failed');
+        const body = await response.json().catch(() => ({}));
+        const error = new Error(body.error || 'API request failed') as Error & {
+          status?: number;
+          needsVerification?: boolean;
+          email?: string;
+        };
+        error.status = response.status;
+        error.needsVerification = body.needsVerification;
+        error.email = body.email;
+        throw error;
       }
 
       return response.json();
@@ -93,12 +102,20 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 }
 
 // Auth API
-export async function register(email: string, username: string, password: string): Promise<{ user: User; token: string }> {
-  const data = await apiRequest<{ user: User; token: string }>('/auth/register', {
+export interface RegisterResult {
+  user: User;
+  token?: string;
+  requiresEmailVerification?: boolean;
+  /** Present only in dev mode (no SMTP configured) so the flow can be tested. */
+  devVerifyUrl?: string;
+}
+
+export async function register(email: string, username: string, password: string): Promise<RegisterResult> {
+  const data = await apiRequest<RegisterResult>('/auth/register', {
     method: 'POST',
     body: JSON.stringify({ email, username, password }),
   });
-  await setToken(data.token);
+  if (data.token) await setToken(data.token);
   return data;
 }
 
@@ -122,6 +139,13 @@ export async function requestPasswordReset(identifier: string): Promise<{ exists
   });
 }
 
+export async function resendVerification(email: string): Promise<{ message: string; devVerifyUrl?: string }> {
+  return apiRequest<{ message: string; devVerifyUrl?: string }>('/auth/resend-verification', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
 export async function getCurrentUser(): Promise<User> {
   const data = await apiRequest<{ user: User }>('/auth/me');
   return data.user;
@@ -132,6 +156,21 @@ export async function deleteCurrentUser(): Promise<void> {
     method: 'DELETE',
   });
   await removeToken();
+}
+
+// Push tokens (Expo Push Service)
+export async function registerPushToken(token: string, platform: string): Promise<void> {
+  await apiRequest('/push/register-token', {
+    method: 'POST',
+    body: JSON.stringify({ token, platform }),
+  });
+}
+
+export async function unregisterPushToken(token: string): Promise<void> {
+  await apiRequest('/push/unregister-token', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
 }
 
 // Tasks API

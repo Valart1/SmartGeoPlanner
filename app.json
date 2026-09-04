@@ -6,9 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "backgroundColor": "#0F0E1A"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.smartgeoplanner.app",
@@ -36,6 +33,13 @@
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0F0E1A",
+          "image": "./assets/splash-icon.png"
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
@@ -48,7 +52,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Smart Geo-Planner uses your location to tag tasks and show local weather."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }

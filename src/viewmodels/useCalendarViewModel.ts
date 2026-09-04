@@ -21,6 +21,7 @@ import {
   scheduleEventReminder,
   cancelNotification,
   scheduleNewEventNotification,
+  shouldUseLocalEventAnnouncements,
 } from '../services/notificationService';
 import { todayString, toLocalDateString } from '../utils/dateUtils';
 
@@ -129,6 +130,7 @@ export function useCalendarViewModel(userId: string): CalendarViewModel {
         if (nextSeen.has(event.id)) continue;
         nextSeen.add(event.id);
         if (event.userId === userIdRef.current) continue; // own event — never self-announce
+        if (!shouldUseLocalEventAnnouncements()) continue; // push handles it (dev/prod build)
         try {
           scheduleNewEventNotification(
             event.title,

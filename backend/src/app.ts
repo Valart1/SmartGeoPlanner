@@ -5,6 +5,7 @@ import authRoutes from './routes/auth';
 import taskRoutes from './routes/tasks';
 import eventRoutes from './routes/events';
 import adminRoutes from './routes/admin';
+import pushRoutes from './routes/push';
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/push', pushRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

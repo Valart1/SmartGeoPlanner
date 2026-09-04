@@ -1,8 +1,44 @@
 import { Router } from 'express';
 import { pool } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { sendPushToMany } from '../services/pushService';
 
 const router = Router();
+
+/**
+ * Notify every OTHER registered device about a new/shared event via push.
+ * Runs fire-and-forget so a push failure never blocks the event save.
+ */
+async function notifyOthersAboutEvent(
+  creatorUserId: string,
+  creatorUsername: string,
+  title: string,
+  whenLabel: string,
+): Promise<void> {
+  try {
+    const result = await pool.query(
+      `SELECT pt.token
+       FROM push_tokens pt
+       JOIN users u ON u.id = pt.user_id
+       WHERE pt.user_id <> $1`,
+      [creatorUserId]
+    );
+    const tokens = result.rows.map((row: { token: string }) => row.token);
+    if (tokens.length === 0) return;
+
+    const { invalidTokens } = await sendPushToMany(tokens, {
+      title: `New Event from ${creatorUsername}`,
+      body: `"${title}" is scheduled for ${whenLabel}.`,
+      data: { type: 'new_event' },
+    });
+
+    if (invalidTokens.length > 0) {
+      await pool.query('DELETE FROM push_tokens WHERE token = ANY($1::text[])', [invalidTokens]);
+    }
+  } catch (error) {
+    console.error('[events] notifyOthersAboutEvent error:', error);
+  }
+}
 
 // Get all events (shared calendar: every user sees every event)
 router.get('/', authMiddleware, async (req: AuthRequest, res) => {
@@ -56,6 +92,16 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     );
 
     const event = result.rows[0];
+
+    // Fire-and-forget push to all OTHER users (shared calendar).
+    const whenLabel = isAllDay ? date : `${date} at ${startTime}`;
+    notifyOthersAboutEvent(
+      req.user!.id,
+      req.user!.username ?? 'another user',
+      title,
+      whenLabel,
+    );
+
     res.status(201).json({
       event: {
         id: event.id,

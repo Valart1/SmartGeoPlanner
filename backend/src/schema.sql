@@ -19,6 +19,23 @@ BEGIN
     END IF;
 END $$;
 
+-- Email verification columns (idempotent)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code_hash VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMP WITH TIME ZONE;
+
+-- Device push tokens (for remote push notifications via Expo Push Service)
+CREATE TABLE IF NOT EXISTS push_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(255) NOT NULL,
+    platform VARCHAR(20) NOT NULL DEFAULT 'android',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, token)
+);
+CREATE INDEX IF NOT EXISTS idx_push_tokens_user_id ON push_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_push_tokens_token ON push_tokens(token);
+
 -- Tasks table
 CREATE TABLE IF NOT EXISTS tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

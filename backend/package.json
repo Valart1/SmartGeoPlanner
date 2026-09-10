@@ -7,7 +7,9 @@
     "dev": "ts-node-dev src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "migrate": "node dist/migrate.js"
+    "migrate": "node dist/migrate.js",
+    "postinstall": "node copy-env.js",
+    "seed-admin": "node seed-admin.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",

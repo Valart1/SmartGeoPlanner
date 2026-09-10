@@ -1,0 +1,31 @@
+
+> smartgeoplanner-backend@1.0.0 dev
+> ts-node-dev src/index.ts
+
+[INFO] 10:14:33 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.3)
+Server running on port 3000
+[admin] latizylfiu@gmail.com granted admin rights
+[mailer] Verification email sent to latizylfiu@gmail.com (<fc154f1b-52c0-5416-1763-ae1a581fd304@gmail.com>)
+[mailer] Verification email sent to valartzylfiu@gmail.com (<6e253179-f4db-bfc1-36bc-12dfa10880fa@gmail.com>)
+[events] notifyOthersAboutEvent error: error: relation "push_tokens" does not exist
+    at c:\Users\latiz\Desktop\Project\SmartGeoPlanner\backend\node_modules\pg-pool\index.js:45:11
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at notifyOthersAboutEvent (c:\Users\latiz\Desktop\Project\SmartGeoPlanner\backend\src\routes\events.ts:19:20) {
+  length: 110,
+  severity: 'ERROR',
+  code: '42P01',
+  detail: undefined,
+  hint: undefined,
+  position: '29',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '1469',
+  routine: 'parserOpenTable'
+}

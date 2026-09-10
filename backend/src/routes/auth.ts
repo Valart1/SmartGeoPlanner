@@ -109,6 +109,13 @@ router.post('/register', async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // Emails listed in ADMIN_EMAILS (comma-separated) are always created as admins
+    const adminEmails = (process.env.ADMIN_EMAILS || '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    const isAdmin = adminEmails.includes(emailKey);
+
     // Email verification token (valid 24h) — one-click link is sent by email.
     const verificationToken = generateVerificationToken();
     const tokenHash = hashVerificationToken(verificationToken);
@@ -117,10 +124,10 @@ router.post('/register', async (req, res) => {
     // Create user — always created UNVERIFIED until the email is confirmed.
     const result = await pool.query(
       `INSERT INTO users (email, username, display_name, password_hash,
-                          is_email_verified, verification_code_hash, verification_expires_at)
-       VALUES ($1, $2, $3, $4, FALSE, $5, $6)
+                          is_email_verified, is_admin, verification_code_hash, verification_expires_at)
+       VALUES ($1, $2, $3, $4, FALSE, $7, $5, $6)
        RETURNING id, email, username, display_name, is_email_verified, is_admin, created_at`,
-      [emailKey, usernameKey, displayName || username, passwordHash, tokenHash, verificationExpiresAt]
+      [emailKey, usernameKey, displayName || username, passwordHash, tokenHash, verificationExpiresAt, isAdmin]
     );
 
     const user = result.rows[0];
